@@ -1,5 +1,4 @@
 import json
-from datetime import date
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -9,7 +8,7 @@ from .config import Settings
 from .extraction import extract_claim
 from .gaps import find_gap
 from .ledger import Ledger
-from .rules import calculate_amount, load_rate_cards
+from .rules import find_rate_card, load_rate_cards, month_start
 from .status import StatusStore
 
 
@@ -21,13 +20,27 @@ def reconcile_saved_text(
         return {"status": "medical_emergency", "receipt_id": receipt_id}
     if "amount_out_of_range" in claim.errors:
         raise ValueError("reported amount is out of range")
-    if claim.errors:
-        raise ValueError(json.dumps({"extraction_errors": claim.errors}))
+    extraction_errors = tuple(
+        error for error in claim.errors if error != "month_not_found"
+    )
+    if extraction_errors:
+        raise ValueError(json.dumps({"extraction_errors": extraction_errors}))
 
     sample_card = Path(__file__).resolve().parent.parent / "data" / "sample_rate_cards.csv"
     cards = load_rate_cards(sample_card)
-    expected = calculate_amount(claim, cards, date.today())
-    gap = find_gap(expected, claim.reported_amount)
+    on_date = month_start(claim.month)
+    card = find_rate_card(claim, cards, on_date)
+    expected = card.rate * claim.count
+    context = (
+        f"rate_{card.rate}_x_count_{claim.count}",
+        f"rate_source_{card.source}",
+        f"rate_effective_{card.effective_date.isoformat()}",
+        f"activity_{claim.activity}",
+        f"month_{claim.month or 'missing'}",
+    )
+    if claim.month is None:
+        context = context + ("month_missing_used_today",)
+    gap = find_gap(expected, claim.reported_amount, context)
     ledger = Ledger(settings.database_path, settings.receipt_prefix)
     entry = ledger.append(
         {"intake_receipt_id": receipt_id, "claim": claim.__dict__, "expected": expected}
@@ -44,11 +57,20 @@ def reconcile_saved_text(
             claim.activity, claim.month
         ),
     }
-    if gap.found:
+    if gap.found and gap.rupees >= 0:
         complaint_id = f"complaint-{uuid4().hex[:12]}"
+        month = claim.month or "missing (used today's date)"
+        reported = (
+            str(claim.reported_amount)
+            if claim.reported_amount is not None
+            else "missing"
+        )
+        unverified = " (rate unverified)" if card.source == "SAMPLE_ONLY" else ""
         draft = (
-            f"Sample reconciliation: expected ₹{expected}, reported "
-            f"₹{claim.reported_amount if claim.reported_amount is not None else 'missing'}. "
+            f"Receipt ID: {entry['receipt_id']}; activity: {claim.activity}; "
+            f"month: {month}; count: {claim.count}; rate: ₹{card.rate}; "
+            f"expected amount: ₹{expected}; reported amount: ₹{reported}; "
+            f"difference: ₹{gap.rupees}; rate card source: {card.source}{unverified}. "
             "ASHA confirmation required before filing."
         )
         result["complaint"] = ComplaintStore(settings.database_path).create(
