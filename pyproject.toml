@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "asha-shahayak"
+version = "0.1.0"
+description = "Safety-first payment claim intake for ASHA workers"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "pydantic-settings>=2.6,<3",
+    "rapidfuzz>=3.10,<4",
+    "jinja2>=3.1,<4",
+    "httpx>=0.28,<1",
+    "uvicorn[standard]>=0.34,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "python-multipart>=0.0.20,<1",
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.25,<1",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["asha_shahayak*"]

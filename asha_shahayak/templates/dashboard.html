@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Block officer dashboard</title></head>
+<body>
+<h1>Block officer dashboard</h1>
+{% if message %}<p>{{ message }}</p>{% endif %}
+
+<h2>Pending complaints</h2>
+{% if complaints %}
+<ul>
+{% for complaint in complaints %}
+<li>
+  {{ complaint.complaint_id }} - {{ complaint.draft }}
+  <form method="post" action="/dashboard/complaints/{{ complaint.complaint_id }}/reason?token={{ token }}">
+    <select name="reason_code">
+    {% for code in reason_codes %}
+      <option value="{{ code }}" {% if complaint.reason_code == code %}selected{% endif %}>{{ code }}</option>
+    {% endfor %}
+    </select>
+    <button type="submit">Save reason</button>
+  </form>
+</li>
+{% endfor %}
+</ul>
+{% else %}<p>koi entry nahi</p>{% endif %}
+
+<h2>Ledger entries</h2>
+{% if entries %}<table border="1"><tr><th>Receipt ID</th><th>Previous hash</th><th>Hash</th></tr>
+{% for entry in entries %}<tr><td>{{ entry[1] }}</td><td>{{ entry[2] }}</td><td>{{ entry[3] }}</td></tr>{% endfor %}
+</table>{% else %}<p>koi entry nahi</p>{% endif %}
+
+<h2>Gap traces</h2>
+{% if gaps %}<table border="1"><tr><th>Receipt ID</th><th>Stage</th><th>Rupee mismatch</th><th>Trace</th></tr>
+{% for gap in gaps %}<tr><td>{{ gap[0] }}</td><td>{{ gap[1] }}</td><td>{{ gap[2] }}</td><td>{{ gap[3] }}</td></tr>{% endfor %}
+</table>{% else %}<p>koi entry nahi</p>{% endif %}
+
+<h2>Officer status CSV</h2>
+<form method="post" enctype="multipart/form-data" action="/dashboard/status?token={{ token }}">
+  <input type="file" name="file" accept=".csv" required><button type="submit">Upload</button>
+</form>
+{% if statuses %}<table border="1"><tr><th>Activity</th><th>Month</th><th>Status</th><th>Amount</th></tr>
+{% for row in statuses %}<tr><td>{{ row.activity }}</td><td>{{ row.month }}</td><td>{{ row.status }}</td><td>{{ row.amount }}</td></tr>{% endfor %}
+</table>{% else %}<p>koi entry nahi</p>{% endif %}
+</body>
+</html>
