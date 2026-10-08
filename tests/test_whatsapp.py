@@ -357,3 +357,80 @@ async def test_blocked_reply_does_not_invoke_tts(webhook_settings, monkeypatch):
     )
 
     assert called == []
+
+
+class _FailingAsr:
+    async def transcribe(self, audio):
+        raise RuntimeError("asr down")
+
+
+class _FakeMedia:
+    async def download(self, media_id):
+        return b"fake-ogg-bytes"
+
+
+def _audio_message(message_id):
+    return {
+        "id": message_id,
+        "from": "15550000001",
+        "type": "audio",
+        "audio": {"id": "media-1"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_asr_failure_sends_retry_message_without_crashing(webhook_settings, monkeypatch):
+    sent = []
+
+    async def fake_send_reply(settings, to, text, factset=None, receipt_id=""):
+        sent.append((to, text, factset, receipt_id))
+
+    monkeypatch.setattr("asha_shahayak.whatsapp.send_reply", fake_send_reply)
+    from asha_shahayak.whatsapp import process_message
+
+    await process_message(
+        _audio_message("wamid-asr-fail"),
+        {},
+        webhook_settings,
+        _FakeMedia(),
+        _FailingAsr(),
+    )
+
+    assert len(sent) == 1
+    to, text, factset, receipt_id = sent[0]
+    assert to == "15550000001"
+    assert receipt_id and receipt_id in text
+    assert "आवाज़ साफ़ नहीं आई" in text
+    assert isinstance(factset, FactSet)
+    assert factset.all() == ()
+
+
+@pytest.mark.asyncio
+async def test_asr_failure_message_survives_validator(webhook_settings, monkeypatch):
+    monkeypatch.setenv("WA_REPLY", "1")
+    texts = []
+
+    async def fake_tts(text):
+        return b"audio"
+
+    class FakeMeta:
+        def __init__(self, *args):
+            pass
+
+        async def send_text(self, to, text):
+            texts.append(text)
+
+    monkeypatch.setattr("asha_shahayak.whatsapp.synthesize_hindi", fake_tts)
+    monkeypatch.setattr("asha_shahayak.meta.MetaWhatsApp", FakeMeta)
+    from asha_shahayak.whatsapp import process_message
+
+    await process_message(
+        _audio_message("wamid-asr-fail-2"),
+        {},
+        webhook_settings,
+        _FakeMedia(),
+        _FailingAsr(),
+    )
+
+    assert len(texts) == 1
+    assert "आवाज़ साफ़ नहीं आई" in texts[0]

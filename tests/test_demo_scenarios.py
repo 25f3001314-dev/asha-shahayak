@@ -41,3 +41,17 @@ def test_wrong_amount_with_comma_is_blocked():
 
 def test_correct_amount_2000_is_allowed():
     assert validate_reply("₹2000 मिल गया", _facts(2000)) == (True, [])
+
+
+def test_devanagari_budhwar_resolves_to_wednesday():
+    result = resolve_day("बुधवार का पैसा नहीं मिला", NOW)
+
+    assert result["candidates"]
+    assert all(d.weekday() == 2 for d in result["candidates"])
+
+
+def test_devanagari_buddhwar_variant_resolves_to_wednesday():
+    result = resolve_day("बुद्धवार का पैसा नहीं मिला", NOW)
+
+    assert result["candidates"]
+    assert all(d.weekday() == 2 for d in result["candidates"])

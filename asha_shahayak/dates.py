@@ -8,7 +8,7 @@ IST = ZoneInfo("Asia/Kolkata")
 WEEKDAYS = {
     0: ["somvar", "somvaar", "सोमवार"],
     1: ["mangalvar", "mangalwar", "mangalvaar", "मंगलवार"],
-    2: ["budhwar", "budhvar", "budhwaar", "budhvaar", "बुधवार"],
+    2: ["budhwar", "budhvar", "budhwaar", "budhvaar", "बुधवार", "बुद्धवार"],
     3: ["guruvar", "guruwar", "brihaspativar", "veervar", "virvar", "गुरुवार", "बृहस्पतिवार", "वीरवार"],
     4: ["shukravar", "shukrawar", "shukravaar", "शुक्रवार"],
     5: ["shanivar", "shaniwar", "shanivaar", "शनिवार"],
