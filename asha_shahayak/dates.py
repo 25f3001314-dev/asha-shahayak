@@ -39,3 +39,7 @@ def resolve_day(text: str, now: datetime | None = None) -> dict:
 
 def _out(kind: str, cands: list[date], matched: str) -> dict:
     return {"kind": kind, "candidates": cands, "needs_confirmation": len(cands) > 1, "matched": matched}
+
+
+def format_date(date_value: date) -> str:
+    return date_value.strftime("%d-%m-%Y")

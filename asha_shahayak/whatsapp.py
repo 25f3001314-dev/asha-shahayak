@@ -3,6 +3,7 @@ import hmac
 import json
 import logging
 import tempfile
+from datetime import date
 from typing import Annotated, Any, Protocol
 from pathlib import Path
 
@@ -13,6 +14,8 @@ from fastapi.responses import PlainTextResponse
 from .asr import AsrEngine, AsrStub, SarvamAsr
 from .audio import to_wav_16k
 from .config import Settings, get_settings
+from .dates import format_date
+from .extraction import ExtractedClaim, extract_claim
 from .reconciliation import reconcile_saved_text
 from .storage import IntakeStore
 
@@ -144,6 +147,32 @@ def build_reply(result: dict, receipt_id: str) -> str:
     return " ".join(lines)
 
 
+def date_gate_reply(claim: ExtractedClaim) -> str | None:
+    if "date_needs_confirmation" in claim.errors:
+        candidates = ", ".join(
+            format_date(date.fromisoformat(item))
+            for item in claim.day_candidates
+        )
+        return f"आप किस तारीख की बात कर रही हैं? विकल्प: {candidates}।"
+    return None
+
+
+def add_clear_date(reply: str, claim: ExtractedClaim) -> str:
+    if len(claim.day_candidates) == 1:
+        understood = format_date(date.fromisoformat(claim.day_candidates[0]))
+        return f"मैंने समझा: {understood}। {reply}"
+    return reply
+
+
+def reply_for_text(text: str, receipt_id: str, settings: Settings) -> str:
+    claim = extract_claim(text)
+    gated = date_gate_reply(claim)
+    if gated:
+        return gated
+    result = reconcile_saved_text(text, receipt_id, settings)
+    return add_clear_date(build_reply(result, receipt_id), claim)
+
+
 async def process_message(
     message: dict[str, Any],
     payload: dict[str, Any],
@@ -166,8 +195,7 @@ async def process_message(
         text = message.get("text", {}).get("body", "")
         to = message.get("from", "")
         try:
-            result = reconcile_saved_text(text, receipt_id, settings)
-            reply = build_reply(result, receipt_id)
+            reply = reply_for_text(text, receipt_id, settings)
         except Exception as error:
             logger.warning("WhatsApp reconciliation failed: %s", type(error).__name__)
             reply = FORMAT_HINT
@@ -180,8 +208,9 @@ async def process_message(
             text, _score = await voice_text(asr, audio)
             if not text.strip():
                 raise ValueError("empty transcript")
-            result = reconcile_saved_text(text, receipt_id, settings)
-            reply = f'मैंने सुना: "{text.strip()}"\n' + build_reply(result, receipt_id)
+            reply = f'मैंने सुना: "{text.strip()}"\n' + reply_for_text(
+                text, receipt_id, settings
+            )
         except Exception as error:
             logger.warning("voice failed: %s", type(error).__name__)
             reply = f"आपकी आवाज़ मिल गई। रसीद ID: {receipt_id}. आवाज़ साफ़ नहीं आई, कृपया दोबारा बोलें या लिखकर भेजें।"
