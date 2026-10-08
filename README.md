@@ -18,8 +18,8 @@ Safety-first payment claim intake for ASHA workers.
 The current local store uses SQLite to make the durable-ingestion boundary
 executable without provisioning infrastructure. The storage interface is
 intentionally isolated so it can be replaced with PostgreSQL before pilot
-deployment. The reconciliation path is text-first; ASR is only an interface
-stub. `data/sample_rate_cards.csv` is clearly marked sample-only and is not an
+deployment. The reconciliation path is text-first; ASR (Sarvam Saaras) and Hindi TTS are
+optional integrations that need a Sarvam key. `data/sample_rate_cards.csv` is clearly marked sample-only and is not an
 official UP rate card.
 
 ## Demo flow
@@ -86,3 +86,16 @@ URL, or run `ngrok http 8000`. In Meta's test WhatsApp number settings use
 sender must first join Meta's test number. Webhook messages are deduplicated
 by WhatsApp message ID, receipt acknowledgement is sent immediately, and
 voice failures go to human callback. Raw voice bytes are removed after ASR.
+
+### Voice replies and requirements
+
+- **ASR:** voice notes are transcribed with Sarvam Saaras when
+  `ASHA_SARVAM_API_KEY` is set. Without a key, voice goes to human callback.
+- **Voice reply:** replies are sent only when `WA_REPLY=1`. The validated text
+  is sent first; then a best-effort Hindi voice note (Sarvam TTS, converted to
+  OGG/Opus) follows. If TTS, conversion or upload fails, the text reply still
+  stands. Blocked replies get the safe text fallback and no voice note.
+- **ffmpeg with libopus** must be installed for voice conversion.
+- **Status:** the Sarvam and Meta integrations are mock-tested. A live
+  end-to-end test with real credentials is still pending.
+- **Officer dashboard:** set `ASHA_OFFICER_TOKEN`; there is no default.
