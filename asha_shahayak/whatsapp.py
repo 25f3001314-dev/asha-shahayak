@@ -95,6 +95,48 @@ def message_events(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return events
 
 
+async def send_reply(settings: Settings, to: str, text: str) -> None:
+    import os
+    if not to or os.environ.get("WA_REPLY") != "1":
+        return
+    from .meta import MetaWhatsApp
+    try:
+        client = MetaWhatsApp(
+            settings.meta_access_token,
+            settings.meta_phone_number_id,
+            settings.meta_graph_version,
+        )
+        await client.send_text(to, text)
+    except Exception as error:
+        response = getattr(error, "response", None)
+        detail = response.text[:300] if response is not None else ""
+        logger.warning("WhatsApp reply failed: %s %s", type(error).__name__, detail)
+
+
+FORMAT_HINT = "Samajh nahi aaya. Aise bhejein: Vaccination march count 3 amount 250"
+
+
+def build_reply(result: dict, receipt_id: str) -> str:
+    if result.get("status") == "medical_emergency":
+        return "Payment claim nahi bana. Emergency help ke liye 108/112 verify karke call karein."
+    gap = result.get("gap") or {}
+    expected = result.get("expected_amount")
+    lines = [f"Entry mil gayi. Receipt ID: {result.get('receipt_id', receipt_id)}."]
+    if expected is not None:
+        lines.append(f"Rate card ke hisaab se expected: ₹{expected}.")
+    rupees = gap.get("rupees")
+    if gap.get("found") and rupees is not None:
+        if rupees >= 0:
+            lines.append(f"Antar: ₹{rupees} kam mila. Complaint draft ban gayi, aapki confirmation ke bina file nahi hogi.")
+        else:
+            lines.append(f"₹{abs(rupees)} zyada mila.")
+    else:
+        lines.append("Koi antar nahi mila.")
+    if "SAMPLE_ONLY" in str(gap.get("trace", "")):
+        lines.append("(Rate abhi sample hai, verified nahi.)")
+    return " ".join(lines)
+
+
 async def process_message(
     message: dict[str, Any],
     payload: dict[str, Any],
@@ -115,10 +157,14 @@ async def process_message(
         return
     if message.get("type") == "text":
         text = message.get("text", {}).get("body", "")
+        to = message.get("from", "")
         try:
-            reconcile_saved_text(text, receipt_id, settings)
+            result = reconcile_saved_text(text, receipt_id, settings)
+            reply = build_reply(result, receipt_id)
         except Exception as error:
             logger.warning("WhatsApp reconciliation failed: %s", type(error).__name__)
+            reply = FORMAT_HINT
+        await send_reply(settings, to, reply)
         return
     if message.get("type") == "audio":
         audio = await media_client.download(message["audio"]["id"])
