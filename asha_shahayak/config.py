@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     )
     sarvam_api_key: str = ""
     sarvam_api_url: str = "https://api.sarvam.ai/speech-to-text"
+    session_salt: str = Field(
+        "",
+        validation_alias=AliasChoices("ASHA_SESSION_SALT", "SESSION_SALT"),
+    )
 
     model_config = SettingsConfigDict(
         env_prefix="ASHA_",

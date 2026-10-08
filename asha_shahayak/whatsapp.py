@@ -17,6 +17,7 @@ from .config import Settings, get_settings
 from .dates import format_date
 from .extraction import ExtractedClaim, extract_claim
 from .intent import classify_intent, intent_reply
+from .session import QueryMemory
 from .reconciliation import reconcile_saved_text
 from .storage import IntakeStore
 
@@ -165,7 +166,9 @@ def add_clear_date(reply: str, claim: ExtractedClaim) -> str:
     return reply
 
 
-def reply_for_text(text: str, receipt_id: str, settings: Settings) -> str:
+def reply_for_text(
+    text: str, receipt_id: str, settings: Settings, sender: str = ""
+) -> str:
     claim = extract_claim(text)
     gated = date_gate_reply(claim)
     if gated:
@@ -178,8 +181,29 @@ def reply_for_text(text: str, receipt_id: str, settings: Settings) -> str:
         and "count_invalid" not in claim.errors
     )
     if intent != "unknown" and not has_structured_claim:
+        if intent == "followup_status" and settings.session_salt:
+            previous = QueryMemory(
+                settings.database_path, settings.session_salt
+            ).get(sender)
+            if previous:
+                return (
+                    f"पिछली पुष्टि की प्रविष्टि की रसीद ID: {previous['receipt_id']}। "
+                    "रिकॉर्ड से भुगतान की तारीख पक्की नहीं है।"
+                )
         return intent_reply(intent)
     result = reconcile_saved_text(text, receipt_id, settings)
+    if (
+        settings.session_salt
+        and has_structured_claim
+        and len(claim.day_candidates) == 1
+        and result.get("status") == "reconciled"
+    ):
+        QueryMemory(settings.database_path, settings.session_salt).save(
+            sender,
+            claim.activity,
+            claim.day_candidates[0],
+            result.get("receipt_id", receipt_id),
+        )
     return add_clear_date(build_reply(result, receipt_id), claim)
 
 
@@ -205,7 +229,7 @@ async def process_message(
         text = message.get("text", {}).get("body", "")
         to = message.get("from", "")
         try:
-            reply = reply_for_text(text, receipt_id, settings)
+            reply = reply_for_text(text, receipt_id, settings, to)
         except Exception as error:
             logger.warning("WhatsApp reconciliation failed: %s", type(error).__name__)
             reply = FORMAT_HINT
@@ -219,7 +243,7 @@ async def process_message(
             if not text.strip():
                 raise ValueError("empty transcript")
             reply = f'मैंने सुना: "{text.strip()}"\n' + reply_for_text(
-                text, receipt_id, settings
+                text, receipt_id, settings, to
             )
         except Exception as error:
             logger.warning("voice failed: %s", type(error).__name__)
