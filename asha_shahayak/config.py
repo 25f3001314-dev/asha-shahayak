@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     confidence_high_threshold: float = 0.9
     confidence_medium_threshold: float = 0.6
     receipt_prefix: str = "ASHA"
-    officer_token: str = "change-me"
+    officer_token: str = ""
     meta_verify_token: str = Field(
         "",
         validation_alias=AliasChoices("ASHA_META_VERIFY_TOKEN", "WHATSAPP_VERIFY_TOKEN"),

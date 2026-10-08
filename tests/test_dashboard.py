@@ -86,3 +86,10 @@ def test_pending_returns_a_non_empty_complaint(tmp_path):
     assert len(complaints) == 1
     assert complaints[0]["complaint_id"] == "complaint-1"
     assert complaints[0]["draft"] == "amount mismatch"
+
+
+def test_officer_token_default_is_empty(monkeypatch):
+    monkeypatch.delenv("ASHA_OFFICER_TOKEN", raising=False)
+    from asha_shahayak.config import Settings
+
+    assert Settings(_env_file=None).officer_token == ""
