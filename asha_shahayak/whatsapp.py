@@ -16,6 +16,7 @@ from .audio import to_wav_16k
 from .config import Settings, get_settings
 from .dates import format_date
 from .extraction import ExtractedClaim, extract_claim
+from .intent import classify_intent, intent_reply
 from .reconciliation import reconcile_saved_text
 from .storage import IntakeStore
 
@@ -169,6 +170,15 @@ def reply_for_text(text: str, receipt_id: str, settings: Settings) -> str:
     gated = date_gate_reply(claim)
     if gated:
         return gated
+    intent = classify_intent(text)
+    has_structured_claim = (
+        claim.activity is not None
+        and claim.count is not None
+        and "activity_not_found" not in claim.errors
+        and "count_invalid" not in claim.errors
+    )
+    if intent != "unknown" and not has_structured_claim:
+        return intent_reply(intent)
     result = reconcile_saved_text(text, receipt_id, settings)
     return add_clear_date(build_reply(result, receipt_id), claim)
 
