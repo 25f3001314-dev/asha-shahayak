@@ -5,6 +5,7 @@ import sqlite3
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sarvamai.core.api_error import ApiError
 
 from asha_shahayak.api import app
 from asha_shahayak.asr import AsrStub, SarvamAsr
@@ -203,28 +204,43 @@ async def test_raw_audio_file_is_removed_after_processing(tmp_path):
 @pytest.mark.asyncio
 async def test_sarvam_request_uses_api_key(monkeypatch):
     class Response:
-        def raise_for_status(self):
-            pass
+        transcript = "vaccination"
+        language_code = "hi-IN"
 
-        def json(self):
-            return {"transcript": "vaccination", "confidence": 0.91}
-
-    class Client:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            pass
-
-        async def post(self, url, headers, files):
-            assert headers["api-subscription-key"] == "only-in-memory"
-            assert files["file"][1] == b"audio"
+    class SpeechToText:
+        async def transcribe(self, **kwargs):
+            assert kwargs["file"] == ("voice.wav", b"audio", "audio/wav")
+            assert kwargs["model"] == "saaras:v3"
+            assert kwargs["mode"] == "transcribe"
+            assert kwargs["language_code"] == "hi-IN"
+            assert kwargs["input_audio_codec"] == "wav"
             return Response()
 
-    monkeypatch.setattr("asha_shahayak.asr.httpx.AsyncClient", lambda timeout: Client())
-    result = await SarvamAsr("only-in-memory", "https://sarvam.test").transcribe(b"audio")
+    class Client:
+        def __init__(self, **kwargs):
+            assert kwargs["api_subscription_key"] == "only-in-memory"
+            self.speech_to_text = SpeechToText()
 
-    assert result == ("vaccination", 0.91)
+    monkeypatch.setattr("asha_shahayak.asr.AsyncSarvamAI", Client)
+    result = await SarvamAsr("only-in-memory").transcribe(b"audio")
+
+    assert result == ("vaccination", "hi-IN")
+
+
+@pytest.mark.asyncio
+async def test_sarvam_api_error_is_raised(monkeypatch):
+    class SpeechToText:
+        async def transcribe(self, **kwargs):
+            raise ApiError(status_code=503, body={"error": "unavailable"})
+
+    class Client:
+        def __init__(self, **kwargs):
+            self.speech_to_text = SpeechToText()
+
+    monkeypatch.setattr("asha_shahayak.asr.AsyncSarvamAI", Client)
+
+    with pytest.raises(ApiError):
+        await SarvamAsr("only-in-memory").transcribe(b"audio")
 
 
 def test_adapter_uses_existing_meta_settings():
