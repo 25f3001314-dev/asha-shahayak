@@ -118,22 +118,28 @@ FORMAT_HINT = "Samajh nahi aaya. Aise bhejein: Vaccination march count 3 amount 
 
 def build_reply(result: dict, receipt_id: str) -> str:
     if result.get("status") == "medical_emergency":
-        return "Payment claim nahi bana. Emergency help ke liye 108/112 verify karke call karein."
+        return "यह भुगतान का दावा नहीं बना। आपातकालीन मदद के लिए 108 या 112 पर कॉल करें।"
     gap = result.get("gap") or {}
     expected = result.get("expected_amount")
-    lines = [f"Entry mil gayi. Receipt ID: {result.get('receipt_id', receipt_id)}."]
+    rid = result.get("receipt_id", receipt_id)
+    lines = [f"प्रविष्टि मिल गई। रसीद ID: {rid}।"]
     if expected is not None:
-        lines.append(f"Rate card ke hisaab se expected: ₹{expected}.")
+        lines.append(f"रेट कार्ड के अनुसार अपेक्षित राशि: ₹{expected}।")
     rupees = gap.get("rupees")
-    if gap.get("found") and rupees is not None:
-        if rupees >= 0:
-            lines.append(f"Antar: ₹{rupees} kam mila. Complaint draft ban gayi, aapki confirmation ke bina file nahi hogi.")
+    if gap.get("found") and rupees is not None and expected is not None:
+        reported = expected - rupees
+        if rupees > 0:
+            lines.append(f"आपने ₹{reported} बताए, जो रेट कार्ड से ₹{rupees} कम है।")
+            lines.append("भुगतान का सत्यापित रिकॉर्ड अभी नहीं देखा गया।")
+            lines.append("शिकायत का मसौदा बन गया है, आपकी हाँ के बिना दर्ज नहीं होगा।")
+        elif rupees == 0:
+            lines.append("आपके बताए अनुसार राशि रेट कार्ड के बराबर है।")
         else:
-            lines.append(f"₹{abs(rupees)} zyada mila.")
+            lines.append(f"आपने ₹{reported} बताए, जो रेट कार्ड से ₹{abs(rupees)} ज़्यादा है।")
     else:
-        lines.append("Koi antar nahi mila.")
+        lines.append("रिकॉर्ड से अंतर तय नहीं हो सका।")
     if "SAMPLE_ONLY" in str(gap.get("trace", "")):
-        lines.append("(Rate abhi sample hai, verified nahi.)")
+        lines.append("(रेट अभी नमूना है, सत्यापित नहीं।)")
     return " ".join(lines)
 
 
