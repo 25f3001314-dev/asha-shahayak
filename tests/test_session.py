@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta, timezone
 import sqlite3
 
+from asha_shahayak.config import Settings
 from asha_shahayak.session import QueryMemory
+from asha_shahayak.whatsapp import reply_for_text
 
 
 def test_query_memory_saves_and_reads_confirmed_query(tmp_path):
@@ -53,3 +55,35 @@ def test_query_memory_does_not_store_plain_sender(tmp_path):
             "SELECT sender_hash FROM confirmed_queries"
         ).fetchone()
     assert "15550000001" not in values[0]
+
+
+def test_whatsapp_saves_and_resolves_confirmed_query(tmp_path, monkeypatch):
+    settings = Settings(
+        database_path=str(tmp_path / "session.sqlite3"),
+        session_salt="test-salt",
+    )
+
+    monkeypatch.setattr(
+        "asha_shahayak.whatsapp.reconcile_saved_text",
+        lambda text, receipt_id, settings: {
+            "status": "reconciled",
+            "receipt_id": "ASHA-2",
+            "expected_amount": 750,
+            "gap": {"found": False},
+        },
+    )
+
+    reply_for_text(
+        "vaccination budhwar count 3 amount 250",
+        "intake-1",
+        settings,
+        "15550000001",
+    )
+    followup = reply_for_text(
+        "uska status batao",
+        "intake-2",
+        settings,
+        "15550000001",
+    )
+
+    assert "ASHA-2" in followup
