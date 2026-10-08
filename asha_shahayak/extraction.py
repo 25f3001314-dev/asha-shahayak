@@ -131,7 +131,7 @@ def _fuzzy_key(text: str, choices: dict[str, list[str]]) -> str | None:
 def extract_claim(
     text: str, *, max_amount: int = 100_000, now: datetime | None = None
 ) -> ExtractedClaim:
-    lowered = re.sub(r"[^\w\s₹]", " ", text.casefold())
+    lowered = re.sub(r"[^\w\s₹\u0900-\u0963\u0966-\u097F]", " ", text.casefold())
     lowered = " ".join(lowered.split())
     emergency_words = ("ambulance", "emergency", "सांस नहीं", "बेहोश", "खून बहुत")
     emergency = any(word in lowered for word in emergency_words)
