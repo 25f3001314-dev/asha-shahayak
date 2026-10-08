@@ -11,6 +11,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, 
 from fastapi.responses import PlainTextResponse
 
 from .asr import AsrEngine, AsrStub, SarvamAsr
+from .audio import to_wav_16k
 from .config import Settings, get_settings
 from .reconciliation import reconcile_saved_text
 from .storage import IntakeStore
@@ -72,7 +73,7 @@ async def voice_text(asr: AsrEngine, audio: bytes) -> tuple[str, float]:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as file:
             file.write(audio)
             temp_name = file.name
-        return await asr.transcribe(Path(temp_name).read_bytes())
+        return await asr.transcribe(to_wav_16k(Path(temp_name).read_bytes()))
     finally:
         if temp_name:
             Path(temp_name).unlink(missing_ok=True)
