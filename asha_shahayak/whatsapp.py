@@ -3,6 +3,7 @@ import hmac
 import json
 import logging
 import tempfile
+import asyncio
 from datetime import date
 from typing import Annotated, Any, Protocol
 from pathlib import Path
@@ -12,7 +13,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, 
 from fastapi.responses import PlainTextResponse
 
 from .asr import AsrEngine, AsrStub, SarvamAsr
-from .audio import to_wav_16k
+from .audio import to_ogg_opus, to_wav_16k
 from .config import Settings, get_settings
 from .dates import format_date
 from .extraction import ExtractedClaim, extract_claim
@@ -118,8 +119,6 @@ async def send_reply(
     if not ok:
         logger.warning("WhatsApp reply blocked: %s", ",".join(reasons))
         text = safe_fallback(receipt_id)
-    else:
-        await synthesize_hindi(text)
     from .meta import MetaWhatsApp
     try:
         client = MetaWhatsApp(
@@ -132,6 +131,25 @@ async def send_reply(
         response = getattr(error, "response", None)
         detail = response.text[:300] if response is not None else ""
         logger.warning("WhatsApp reply failed: %s %s", type(error).__name__, detail)
+        return
+    if ok:
+        await _send_voice(client, to, text)
+
+
+async def _send_voice(client: Any, to: str, text: str) -> None:
+    """Best-effort voice note of the validated reply."""
+    try:
+        audio = await synthesize_hindi(text)
+        if not audio:
+            return
+        ogg = await asyncio.to_thread(to_ogg_opus, audio)
+        if not ogg:
+            logger.warning("Voice reply skipped: audio conversion failed")
+            return
+        media_id = await client.upload_media(ogg)
+        await client.send_audio(to, media_id)
+    except Exception as error:
+        logger.warning("Voice reply failed: %s", type(error).__name__)
 
 
 FORMAT_HINT = "Samajh nahi aaya. Aise bhejein: Vaccination march count 3 amount 250"

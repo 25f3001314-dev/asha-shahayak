@@ -7,6 +7,7 @@ class MetaWhatsApp:
             raise ValueError("Meta WhatsApp credentials are not configured")
         self.access_token = access_token
         self.phone_number_id = phone_number_id
+        self.graph_version = graph_version
         self.base = f"https://graph.facebook.com/{graph_version}/{phone_number_id}"
 
     @property
@@ -30,7 +31,7 @@ class MetaWhatsApp:
     async def media_bytes(self, media_id: str) -> bytes:
         async with httpx.AsyncClient(timeout=30) as client:
             media = await client.get(
-                f"https://graph.facebook.com/v20.0/{media_id}",
+                f"https://graph.facebook.com/{self.graph_version}/{media_id}",
                 headers=self._headers,
             )
             media.raise_for_status()
@@ -38,3 +39,28 @@ class MetaWhatsApp:
             audio = await client.get(url, headers=self._headers)
             audio.raise_for_status()
             return audio.content
+
+    async def upload_media(self, audio: bytes, mime: str = "audio/ogg") -> str:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                f"{self.base}/media",
+                headers=self._headers,
+                data={"messaging_product": "whatsapp", "type": mime},
+                files={"file": ("reply.ogg", audio, mime)},
+            )
+        response.raise_for_status()
+        return response.json()["id"]
+
+    async def send_audio(self, to: str, media_id: str) -> None:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(
+                f"{self.base}/messages",
+                headers=self._headers,
+                json={
+                    "messaging_product": "whatsapp",
+                    "to": to,
+                    "type": "audio",
+                    "audio": {"id": media_id},
+                },
+            )
+        response.raise_for_status()

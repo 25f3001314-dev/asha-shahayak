@@ -20,3 +20,23 @@ def to_wav_16k(audio: bytes, timeout: int = 20) -> bytes:
     except (subprocess.SubprocessError, OSError) as error:
         logger.warning("ffmpeg conversion failed: %s", type(error).__name__)
         return audio
+
+
+def to_ogg_opus(audio: bytes, timeout: int = 20) -> bytes | None:
+    """Convert any audio to OGG/Opus for WhatsApp voice notes."""
+    try:
+        proc = subprocess.run(
+            [
+                "ffmpeg", "-nostdin", "-loglevel", "error", "-i", "pipe:0",
+                "-c:a", "libopus", "-b:a", "24k", "-ar", "16000", "-ac", "1",
+                "-f", "ogg", "pipe:1",
+            ],
+            input=audio,
+            capture_output=True,
+            timeout=timeout,
+            check=True,
+        )
+        return proc.stdout or None
+    except (subprocess.SubprocessError, OSError) as error:
+        logger.warning("ffmpeg voice conversion failed: %s", type(error).__name__)
+        return None

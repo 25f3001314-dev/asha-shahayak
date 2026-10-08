@@ -434,3 +434,74 @@ async def test_asr_failure_message_survives_validator(webhook_settings, monkeypa
 
     assert len(texts) == 1
     assert "आवाज़ साफ़ नहीं आई" in texts[0]
+
+
+class _AudioMeta:
+    instances = []
+
+    def __init__(self, *args):
+        self.texts, self.uploads, self.audios = [], [], []
+        self.__class__.instances.append(self)
+
+    async def send_text(self, to, text):
+        self.texts.append(text)
+
+    async def upload_media(self, audio, mime="audio/ogg"):
+        self.uploads.append(audio)
+        return "media-123"
+
+    async def send_audio(self, to, media_id):
+        self.audios.append(media_id)
+
+
+@pytest.fixture
+def audio_env(monkeypatch):
+    monkeypatch.setenv("WA_REPLY", "1")
+    _AudioMeta.instances.clear()
+    monkeypatch.setattr("asha_shahayak.meta.MetaWhatsApp", _AudioMeta)
+
+
+@pytest.mark.asyncio
+async def test_voice_note_sent_after_text(webhook_settings, audio_env, monkeypatch):
+    async def fake_tts(text):
+        return b"wav"
+
+    monkeypatch.setattr("asha_shahayak.whatsapp.synthesize_hindi", fake_tts)
+    monkeypatch.setattr("asha_shahayak.whatsapp.to_ogg_opus", lambda audio: b"ogg")
+    from asha_shahayak.whatsapp import send_reply
+
+    await send_reply(webhook_settings, "15550000001", "प्रविष्टि मिल गई।")
+    meta = _AudioMeta.instances[0]
+    assert len(meta.texts) == 1
+    assert meta.uploads == [b"ogg"]
+    assert meta.audios == ["media-123"]
+
+
+@pytest.mark.asyncio
+async def test_tts_failure_still_sends_text(webhook_settings, audio_env, monkeypatch):
+    async def bad_tts(text):
+        raise RuntimeError("tts down")
+
+    monkeypatch.setattr("asha_shahayak.whatsapp.synthesize_hindi", bad_tts)
+    from asha_shahayak.whatsapp import send_reply
+
+    await send_reply(webhook_settings, "15550000001", "प्रविष्टि मिल गई।")
+    meta = _AudioMeta.instances[0]
+    assert len(meta.texts) == 1
+    assert meta.audios == []
+
+
+@pytest.mark.asyncio
+async def test_conversion_failure_still_sends_text(webhook_settings, audio_env, monkeypatch):
+    async def fake_tts(text):
+        return b"wav"
+
+    monkeypatch.setattr("asha_shahayak.whatsapp.synthesize_hindi", fake_tts)
+    monkeypatch.setattr("asha_shahayak.whatsapp.to_ogg_opus", lambda audio: None)
+    from asha_shahayak.whatsapp import send_reply
+
+    await send_reply(webhook_settings, "15550000001", "प्रविष्टि मिल गई।")
+    meta = _AudioMeta.instances[0]
+    assert len(meta.texts) == 1
+    assert meta.uploads == []
+    assert meta.audios == []
