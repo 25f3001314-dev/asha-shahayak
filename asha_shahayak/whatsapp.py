@@ -167,8 +167,19 @@ async def process_message(
         await send_reply(settings, to, reply)
         return
     if message.get("type") == "audio":
-        audio = await media_client.download(message["audio"]["id"])
-        await asr.transcribe(audio)
+        to = message.get("from", "")
+        try:
+            audio = await media_client.download(message["audio"]["id"])
+            text, _score = await voice_text(asr, audio)
+            if not text.strip():
+                raise ValueError("empty transcript")
+            result = reconcile_saved_text(text, receipt_id, settings)
+            reply = f'मैंने सुना: "{text.strip()}"\n' + build_reply(result, receipt_id)
+        except Exception as error:
+            logger.warning("voice failed: %s", type(error).__name__)
+            reply = f"आपकी आवाज़ मिल गई। रसीद ID: {receipt_id}. आवाज़ साफ़ नहीं आई, कृपया दोबारा बोलें या लिखकर भेजें।"
+        await send_reply(settings, to, reply)
+        return
 
 
 async def process_payload(

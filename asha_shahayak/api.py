@@ -119,3 +119,11 @@ async def complaint_decision(
         return ComplaintStore(settings.database_path).decide(complaint_id, decision.confirm)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.middleware("http")
+async def _log_wa_webhook(request, call_next):
+    if request.url.path == "/webhooks/whatsapp" and request.method == "POST":
+        body = await request.body()
+        print("WA_WEBHOOK", body.decode("utf-8", "replace")[:2000], flush=True)
+    return await call_next(request)
