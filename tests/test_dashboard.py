@@ -24,7 +24,7 @@ async def test_dashboard_empty_state_and_token(dashboard_settings):
 
     assert denied.status_code == 401
     assert page.status_code == 200
-    assert page.text.count("koi entry nahi") == 4
+    assert page.text.count("No entries yet") == 4
 
 
 @pytest.mark.asyncio

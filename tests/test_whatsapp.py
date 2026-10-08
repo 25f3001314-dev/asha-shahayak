@@ -171,7 +171,7 @@ async def test_statuses_only_payload_creates_nothing(webhook_settings):
 
 @pytest.mark.asyncio
 async def test_whatsapp_routes_are_unavailable_without_configuration():
-    app.dependency_overrides[get_settings] = lambda: Settings()
+    app.dependency_overrides[get_settings] = lambda: Settings(_env_file=None)
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             get_response = await client.get(
