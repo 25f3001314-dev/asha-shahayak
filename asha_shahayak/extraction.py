@@ -1,7 +1,10 @@
 import re
 from dataclasses import dataclass
+from datetime import datetime
 
 from rapidfuzz import fuzz, process
+
+from asha_shahayak.dates import resolve_day
 
 
 ACTIVITIES = {
@@ -82,6 +85,8 @@ class ExtractedClaim:
     reported_amount: int | None
     emergency: bool
     errors: tuple[str, ...]
+    day_candidates: tuple[str, ...] = ()
+    day_word: str | None = None
 
 
 def parse_number(value: str) -> int | None:
@@ -123,13 +128,19 @@ def _fuzzy_key(text: str, choices: dict[str, list[str]]) -> str | None:
     return next(key for alias, key in candidates if alias == match[0])
 
 
-def extract_claim(text: str, *, max_amount: int = 100_000) -> ExtractedClaim:
+def extract_claim(
+    text: str, *, max_amount: int = 100_000, now: datetime | None = None
+) -> ExtractedClaim:
     lowered = re.sub(r"[^\w\s₹]", " ", text.casefold())
     lowered = " ".join(lowered.split())
     emergency_words = ("ambulance", "emergency", "सांस नहीं", "बेहोश", "खून बहुत")
     emergency = any(word in lowered for word in emergency_words)
     activity = _fuzzy_key(lowered, ACTIVITIES)
     month = _fuzzy_key(lowered, MONTHS)
+    day = resolve_day(text, now)
+    day_candidates = tuple(d.isoformat() for d in day["candidates"])
+    if month is None and len(day["candidates"]) == 1:
+        month = day["candidates"][0].strftime("%B").lower()
     count = _find_number(lowered, ("count", "गिनती", "संख्या", "बार", "visits", "बार"))
     amount = _find_number(lowered, ("amount", "राशि", "पैसा", "payment", "₹", "rs"))
     errors = []
@@ -139,6 +150,8 @@ def extract_claim(text: str, *, max_amount: int = 100_000) -> ExtractedClaim:
         errors.append("month_not_found")
     if count is None or count <= 0:
         errors.append("count_invalid")
+    if len(day_candidates) > 1:
+        errors.append("date_needs_confirmation")
     if amount is not None and not 0 <= amount <= max_amount:
         errors.append("amount_out_of_range")
     return ExtractedClaim(
@@ -149,4 +162,6 @@ def extract_claim(text: str, *, max_amount: int = 100_000) -> ExtractedClaim:
         reported_amount=amount,
         emergency=emergency,
         errors=tuple(errors),
+        day_candidates=day_candidates,
+        day_word=day["matched"],
     )
