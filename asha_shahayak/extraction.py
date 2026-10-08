@@ -124,13 +124,14 @@ def _fuzzy_key(text: str, choices: dict[str, list[str]]) -> str | None:
 
 
 def extract_claim(text: str, *, max_amount: int = 100_000) -> ExtractedClaim:
-    lowered = text.lower()
+    lowered = re.sub(r"[^\w\s₹]", " ", text.casefold())
+    lowered = " ".join(lowered.split())
     emergency_words = ("ambulance", "emergency", "सांस नहीं", "बेहोश", "खून बहुत")
     emergency = any(word in lowered for word in emergency_words)
-    activity = _fuzzy_key(text, ACTIVITIES)
-    month = _fuzzy_key(text, MONTHS)
-    count = _find_number(text, ("count", "गिनती", "संख्या", "बार", "visits", "बार"))
-    amount = _find_number(text, ("amount", "राशि", "पैसा", "payment", "₹", "rs"))
+    activity = _fuzzy_key(lowered, ACTIVITIES)
+    month = _fuzzy_key(lowered, MONTHS)
+    count = _find_number(lowered, ("count", "गिनती", "संख्या", "बार", "visits", "बार"))
+    amount = _find_number(lowered, ("amount", "राशि", "पैसा", "payment", "₹", "rs"))
     errors = []
     if not activity:
         errors.append("activity_not_found")

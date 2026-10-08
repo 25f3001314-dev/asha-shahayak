@@ -1,3 +1,5 @@
+import pytest
+
 from asha_shahayak.extraction import amount_words, extract_claim, parse_number
 
 
@@ -15,6 +17,43 @@ def test_extraction_fuzzy_matches_fixed_fields():
     assert claim.count == 3
     assert claim.reported_amount == 50
     assert claim.errors == ()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Vaccination March Count 3 Amount 259",
+        "VACCINATION march count 3 amount 250",
+    ],
+)
+def test_extraction_matches_case_insensitively(text):
+    claim = extract_claim(text)
+
+    assert claim.activity == "vaccination"
+    assert claim.month == "march"
+    assert claim.count == 3
+    assert claim.reported_amount in (250, 259)
+    assert claim.errors == ()
+
+
+@pytest.mark.parametrize("text", [
+    "Vaccination march count 3 amount 250",
+    "VACCINATION march count 3 amount 250",
+    "vaccination march, count 3 amount 250",
+    "  vaccination   march   count 3 amount 250  ",
+])
+def test_extraction_normalises_case_punctuation_and_spaces(text):
+    claim = extract_claim(text)
+
+    assert claim.activity == "vaccination"
+    assert claim.month == "march"
+    assert claim.errors == ()
+
+
+def test_activity_without_details_reports_missing_month():
+    claim = extract_claim("vaccination")
+
+    assert "month_not_found" in claim.errors
 
 
 def test_emergency_does_not_become_a_claim():
