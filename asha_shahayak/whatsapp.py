@@ -16,10 +16,12 @@ from .audio import to_wav_16k
 from .config import Settings, get_settings
 from .dates import format_date
 from .extraction import ExtractedClaim, extract_claim
+from .factset import FactSet, factset_from_result
 from .intent import classify_intent, intent_reply
 from .session import QueryMemory
 from .reconciliation import reconcile_saved_text
 from .storage import IntakeStore
+from .validator import safe_fallback, validate_reply
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -101,10 +103,20 @@ def message_events(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return events
 
 
-async def send_reply(settings: Settings, to: str, text: str) -> None:
+async def send_reply(
+    settings: Settings,
+    to: str,
+    text: str,
+    factset: FactSet | None = None,
+    receipt_id: str = "",
+) -> None:
     import os
     if not to or os.environ.get("WA_REPLY") != "1":
         return
+    ok, reasons = validate_reply(text, factset or FactSet())
+    if not ok:
+        logger.warning("WhatsApp reply blocked: %s", ",".join(reasons))
+        text = safe_fallback(receipt_id)
     from .meta import MetaWhatsApp
     try:
         client = MetaWhatsApp(
@@ -166,13 +178,13 @@ def add_clear_date(reply: str, claim: ExtractedClaim) -> str:
     return reply
 
 
-def reply_for_text(
+def reply_context_for_text(
     text: str, receipt_id: str, settings: Settings, sender: str = ""
-) -> str:
+) -> tuple[str, FactSet]:
     claim = extract_claim(text)
     gated = date_gate_reply(claim)
     if gated:
-        return gated
+        return gated, FactSet()
     intent = classify_intent(text)
     has_structured_claim = (
         claim.activity is not None
@@ -189,8 +201,8 @@ def reply_for_text(
                 return (
                     f"पिछली पुष्टि की प्रविष्टि की रसीद ID: {previous['receipt_id']}। "
                     "रिकॉर्ड से भुगतान की तारीख पक्की नहीं है।"
-                )
-        return intent_reply(intent)
+                ), FactSet()
+        return intent_reply(intent), FactSet()
     result = reconcile_saved_text(text, receipt_id, settings)
     if (
         settings.session_salt
@@ -204,7 +216,13 @@ def reply_for_text(
             claim.day_candidates[0],
             result.get("receipt_id", receipt_id),
         )
-    return add_clear_date(build_reply(result, receipt_id), claim)
+    return add_clear_date(build_reply(result, receipt_id), claim), factset_from_result(result)
+
+
+def reply_for_text(
+    text: str, receipt_id: str, settings: Settings, sender: str = ""
+) -> str:
+    return reply_context_for_text(text, receipt_id, settings, sender)[0]
 
 
 async def process_message(
@@ -229,11 +247,12 @@ async def process_message(
         text = message.get("text", {}).get("body", "")
         to = message.get("from", "")
         try:
-            reply = reply_for_text(text, receipt_id, settings, to)
+            reply, facts = reply_context_for_text(text, receipt_id, settings, to)
         except Exception as error:
             logger.warning("WhatsApp reconciliation failed: %s", type(error).__name__)
             reply = FORMAT_HINT
-        await send_reply(settings, to, reply)
+            facts = FactSet()
+        await send_reply(settings, to, reply, facts, receipt_id)
         return
     if message.get("type") == "audio":
         to = message.get("from", "")
@@ -242,13 +261,15 @@ async def process_message(
             text, _score = await voice_text(asr, audio)
             if not text.strip():
                 raise ValueError("empty transcript")
-            reply = f'मैंने सुना: "{text.strip()}"\n' + reply_for_text(
+            voice_reply, facts = reply_context_for_text(
                 text, receipt_id, settings, to
             )
+            reply = f'मैंने सुना: "{text.strip()}"\n' + voice_reply
         except Exception as error:
             logger.warning("voice failed: %s", type(error).__name__)
             reply = f"आपकी आवाज़ मिल गई। रसीद ID: {receipt_id}. आवाज़ साफ़ नहीं आई, कृपया दोबारा बोलें या लिखकर भेजें।"
-        await send_reply(settings, to, reply)
+            facts = FactSet()
+        await send_reply(settings, to, reply, facts, receipt_id)
         return
 
 

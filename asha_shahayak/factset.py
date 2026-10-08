@@ -53,6 +53,9 @@ def factset_from_result(result: dict[str, Any]) -> FactSet:
         facts.append(
             Fact("expected_amount", expected, EvidenceState.DERIVED, rate_source)
         )
+    query_date = result.get("query_date")
+    if query_date:
+        facts.append(Fact("date", query_date, EvidenceState.DERIVED, "date_resolver"))
     if "reported_amount" in result:
         facts.append(
             Fact(

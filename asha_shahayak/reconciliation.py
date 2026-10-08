@@ -57,6 +57,8 @@ def reconcile_saved_text(
             claim.activity, claim.month
         ),
     }
+    if len(claim.day_candidates) == 1:
+        result["query_date"] = claim.day_candidates[0]
     if gap.found and gap.rupees >= 0:
         complaint_id = f"complaint-{uuid4().hex[:12]}"
         month = claim.month or "missing (used today's date)"
