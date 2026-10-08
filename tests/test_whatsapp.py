@@ -1,3 +1,4 @@
+import os
 import hashlib
 import hmac
 import json
@@ -172,7 +173,10 @@ async def test_statuses_only_payload_creates_nothing(webhook_settings):
 
 
 @pytest.mark.asyncio
-async def test_whatsapp_routes_are_unavailable_without_configuration():
+async def test_whatsapp_routes_are_unavailable_without_configuration(monkeypatch):
+    for name in list(os.environ):
+        if name.startswith("ASHA_META_"):
+            monkeypatch.delenv(name, raising=False)
     app.dependency_overrides[get_settings] = lambda: Settings(_env_file=None)
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
