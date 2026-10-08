@@ -1,3 +1,4 @@
+import logging
 import json
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -123,7 +124,7 @@ async def complaint_decision(
 
 @app.middleware("http")
 async def _log_wa_webhook(request, call_next):
+    response = await call_next(request)
     if request.url.path == "/webhooks/whatsapp" and request.method == "POST":
-        body = await request.body()
-        print("WA_WEBHOOK", body.decode("utf-8", "replace")[:2000], flush=True)
-    return await call_next(request)
+        logging.getLogger(__name__).info("WA_WEBHOOK status=%s", response.status_code)
+    return response
