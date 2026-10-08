@@ -9,6 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from asha_shahayak.api import app
 from asha_shahayak.asr import AsrStub, SarvamAsr
 from asha_shahayak.config import Settings, get_settings
+from asha_shahayak.factset import FactSet
 from asha_shahayak.whatsapp import (
     get_asr,
     get_media_client,
@@ -300,3 +301,39 @@ async def test_text_webhook_reconciles_once(webhook_settings, monkeypatch):
 
     assert response.status_code == 200
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_blocked_reply_does_not_invoke_tts(webhook_settings, monkeypatch):
+    monkeypatch.setenv("WA_REPLY", "1")
+    called = []
+
+    async def fake_tts(text):
+        called.append(text)
+        return b"audio"
+
+    class FakeMeta:
+        def __init__(self, *args):
+            pass
+
+        async def send_text(self, to, text):
+            pass
+
+    monkeypatch.setattr("asha_shahayak.whatsapp.synthesize_hindi", fake_tts)
+    monkeypatch.setattr("asha_shahayak.meta.MetaWhatsApp", FakeMeta)
+    monkeypatch.setattr(
+        "asha_shahayak.whatsapp.validate_reply",
+        lambda text, facts: (False, ["status_not_evidenced"]),
+    )
+
+    from asha_shahayak.whatsapp import send_reply
+
+    await send_reply(
+        webhook_settings,
+        "15550000001",
+        "₹2000 pending है",
+        FactSet(),
+        "ASHA-1",
+    )
+
+    assert called == []

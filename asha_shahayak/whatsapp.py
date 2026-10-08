@@ -21,6 +21,7 @@ from .intent import classify_intent, intent_reply
 from .session import QueryMemory
 from .reconciliation import reconcile_saved_text
 from .storage import IntakeStore
+from .tts import synthesize_hindi
 from .validator import safe_fallback, validate_reply
 
 router = APIRouter()
@@ -117,6 +118,8 @@ async def send_reply(
     if not ok:
         logger.warning("WhatsApp reply blocked: %s", ",".join(reasons))
         text = safe_fallback(receipt_id)
+    else:
+        await synthesize_hindi(text)
     from .meta import MetaWhatsApp
     try:
         client = MetaWhatsApp(
