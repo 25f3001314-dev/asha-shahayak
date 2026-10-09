@@ -9,11 +9,13 @@ def seed(path: str) -> None:
     ledger = Ledger(path)
     entry = ledger.append({"label": "DEMO", "activity": "vaccination", "amount": 250})
     ledger.record_gap(entry["receipt_id"], 50, ("DEMO", "rules_engine", "expected_300_reported_250"))
-    ComplaintStore(path).create(
+    complaints = ComplaintStore(path)
+    complaints.create(
         "DEMO-complaint-1",
         entry["receipt_id"],
         "DEMO: sample complaint for officer review",
     )
+    complaints.decide("DEMO-complaint-1", True)
     StatusStore(path).import_csv(
         b"activity,month,status,amount\nvaccination,march,DEMO credited,300\n"
     )

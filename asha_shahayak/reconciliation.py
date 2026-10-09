@@ -8,11 +8,12 @@ from .extraction import extract_claim
 from .gaps import find_gap
 from .ledger import Ledger
 from .rules import find_rate_card, load_rate_cards, month_start
+from .session import sender_hash
 from .status import StatusStore
 
 
 def reconcile_saved_text(
-    text: str, receipt_id: str, settings: Settings
+    text: str, receipt_id: str, settings: Settings, sender: str = ""
 ) -> dict[str, Any]:
     claim = extract_claim(text)
     if claim.emergency:
@@ -85,6 +86,13 @@ def reconcile_saved_text(
             "ASHA confirmation required before filing."
         )
         result["complaint"] = complaint_store.create(
-            complaint_id, entry["receipt_id"], draft
+            complaint_id,
+            entry["receipt_id"],
+            draft,
+            sender_hash=(
+                sender_hash(sender, settings.session_salt)
+                if sender and settings.session_salt
+                else None
+            ),
         )
     return result

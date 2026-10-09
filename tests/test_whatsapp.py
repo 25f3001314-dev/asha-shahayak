@@ -2,6 +2,7 @@ import os
 import hashlib
 import hmac
 import json
+import re
 import sqlite3
 
 import pytest
@@ -11,7 +12,11 @@ from sarvamai.core.api_error import ApiError
 from asha_shahayak.api import app
 from asha_shahayak.asr import AsrStub, SarvamAsr
 from asha_shahayak.config import Settings, get_settings
+from asha_shahayak.complaints import ComplaintStore
 from asha_shahayak.factset import FactSet
+from asha_shahayak.ledger import Ledger
+from asha_shahayak.storage import IntakeStore
+from asha_shahayak.whatsapp import reply_for_text
 from asha_shahayak.whatsapp import (
     get_asr,
     get_media_client,
@@ -376,6 +381,168 @@ def _audio_message(message_id):
         "type": "audio",
         "audio": {"id": "media-1"},
     }
+
+
+def test_whatsapp_confirmation_is_strict_sender_bound_and_idempotent(tmp_path):
+    settings = Settings(
+        database_path=str(tmp_path / "confirm.sqlite3"),
+        session_salt="test-salt",
+    )
+    sender = "15550000001"
+    reply = reply_for_text(
+        "vaccination march count 3 amount 250", "ASHA-1", settings, sender
+    )
+    assert "गतिविधि vaccination" in reply
+    assert "₹300" in reply and "₹250" in reply
+    assert "केवल हाँ या नहीं" in reply
+
+    mixed = reply_for_text("haan par amount galat hai", "ASHA-2", settings, sender)
+    assert mixed == "कृपया केवल हाँ या नहीं लिखें।"
+    assert ComplaintStore(settings.database_path).pending()[0]["state"] == "draft"
+
+    assert "सहेज दी गई" in reply_for_text("haan", "ASHA-3", settings, sender)
+    assert "पहले ही दर्ज" in reply_for_text("हाँ", "ASHA-4", settings, sender)
+    assert ComplaintStore(settings.database_path).confirmed()[0]["state"] == "filed"
+
+
+def test_whatsapp_confirmation_rejects_other_sender_and_expired_draft(tmp_path):
+    settings = Settings(
+        database_path=str(tmp_path / "confirm-expiry.sqlite3"),
+        session_salt="test-salt",
+    )
+    reply_for_text("vaccination march count 3 amount 250", "ASHA-1", settings, "sender-a")
+    assert reply_for_text("haan", "ASHA-2", settings, "sender-b") == (
+        "Samajh nahi aaya. Aise bhejein: Vaccination march count 3 amount 250"
+    )
+    with sqlite3.connect(settings.database_path) as db:
+        db.execute(
+            "UPDATE complaints SET created_at = '2020-01-01T00:00:00+00:00'"
+        )
+    assert reply_for_text("haan", "ASHA-3", settings, "sender-a") == (
+        "Samajh nahi aaya. Aise bhejein: Vaccination march count 3 amount 250"
+    )
+
+
+def test_empty_session_salt_disables_whatsapp_confirmation(tmp_path):
+    settings = Settings(
+        database_path=str(tmp_path / "no-salt.sqlite3"), session_salt=""
+    )
+    reply = reply_for_text(
+        "vaccination march count 3 amount 250", "ASHA-1", settings, "sender-a"
+    )
+    assert "केवल हाँ या नहीं" not in reply
+    assert "Samajh nahi aaya" in reply_for_text(
+        "haan", "ASHA-2", settings, "sender-a"
+    )
+
+
+@pytest.mark.asyncio
+async def test_voice_confirmation_uses_same_strict_path(tmp_path, monkeypatch):
+    settings = Settings(
+        database_path=str(tmp_path / "voice-confirm.sqlite3"),
+        session_salt="test-salt",
+    )
+    sender = "15550000001"
+    reply_for_text("vaccination march count 3 amount 250", "ASHA-1", settings, sender)
+    sent = []
+
+    async def fake_send_reply(settings, to, text, factset=None, receipt_id=""):
+        sent.append(text)
+
+    class YesAsr:
+        async def transcribe(self, audio):
+            return "हाँ", 1.0
+
+    monkeypatch.setattr("asha_shahayak.whatsapp.send_reply", fake_send_reply)
+    from asha_shahayak.whatsapp import process_message
+
+    await process_message(
+        _audio_message("voice-confirm-1"),
+        {},
+        settings,
+        _FakeMedia(),
+        YesAsr(),
+    )
+    assert "सहेज दी गई" in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_failed_whatsapp_processing_is_retried(tmp_path, monkeypatch):
+    settings = Settings(
+        database_path=str(tmp_path / "retry.sqlite3"), session_salt="test-salt"
+    )
+    calls = []
+    attempts = 0
+
+    def flaky_reply(text, receipt_id, settings, sender=""):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("temporary failure")
+        return "ok", FactSet()
+
+    async def fake_send_reply(settings, to, text, factset=None, receipt_id=""):
+        calls.append(text)
+
+    monkeypatch.setattr("asha_shahayak.whatsapp.reply_context_for_text", flaky_reply)
+    monkeypatch.setattr("asha_shahayak.whatsapp.send_reply", fake_send_reply)
+    from asha_shahayak.whatsapp import process_message
+
+    message = {
+        "id": "retry-message",
+        "from": "15550000001",
+        "type": "text",
+        "text": {"body": "vaccination march count 3 amount 250"},
+    }
+    await process_message(message, {}, settings, _FakeMedia(), FakeAsr())
+    await process_message(message, {}, settings, _FakeMedia(), FakeAsr())
+
+    assert attempts == 2
+    assert len(calls) == 2
+    assert IntakeStore(settings.database_path).status_for("retry-message") == "processed"
+
+
+@pytest.mark.asyncio
+async def test_claim_uses_one_receipt_id_across_intake_ledger_complaint_and_reply(
+    tmp_path, monkeypatch
+):
+    settings = Settings(
+        database_path=str(tmp_path / "shared-receipt.sqlite3"),
+        session_salt="test-salt",
+    )
+    sent = []
+
+    async def fake_send_reply(settings, to, text, factset=None, receipt_id=""):
+        sent.append((text, receipt_id))
+
+    monkeypatch.setattr("asha_shahayak.whatsapp.send_reply", fake_send_reply)
+    from asha_shahayak.whatsapp import process_message
+
+    message = {
+        "id": "shared-receipt-message",
+        "from": "15550000001",
+        "type": "text",
+        "text": {"body": "vaccination march count 3 amount 250"},
+    }
+    await process_message(message, {}, settings, _FakeMedia(), FakeAsr())
+
+    intake_receipt_id = IntakeStore(settings.database_path).save_or_get(
+        source="whatsapp",
+        external_message_id=message["id"],
+        payload_json="{}",
+    )[0]
+    ledger_receipt_id = Ledger(settings.database_path).entries()[0][1]
+    complaint = ComplaintStore(settings.database_path).for_receipt(intake_receipt_id)
+    assert complaint is not None
+    complaint_receipt_id = complaint["receipt_id"]
+    reply_receipt_id = re.search(r"रसीद ID: (ASHA-[A-Z0-9]+)", sent[0][0]).group(1)
+
+    assert {
+        intake_receipt_id,
+        ledger_receipt_id,
+        complaint_receipt_id,
+        reply_receipt_id,
+    } == {intake_receipt_id}
 
 
 @pytest.mark.asyncio

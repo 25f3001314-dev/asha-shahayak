@@ -4,6 +4,9 @@ import json
 import logging
 import tempfile
 import asyncio
+import re
+import inspect
+import unicodedata
 from datetime import date
 from typing import Annotated, Any, Protocol
 from pathlib import Path
@@ -15,11 +18,12 @@ from fastapi.responses import PlainTextResponse
 from .asr import AsrEngine, AsrStub, SarvamAsr
 from .audio import to_ogg_opus, to_wav_16k
 from .config import Settings, get_settings
+from .complaints import ComplaintStore
 from .dates import format_date
 from .extraction import ExtractedClaim, extract_claim
 from .factset import FactSet, factset_from_result
 from .intent import classify_intent, intent_reply
-from .session import QueryMemory
+from .session import QueryMemory, sender_hash
 from .reconciliation import reconcile_saved_text
 from .storage import IntakeStore
 from .tts import synthesize_hindi
@@ -27,6 +31,7 @@ from .validator import safe_fallback, validate_reply
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+_empty_salt_warning_logged = False
 
 
 class MediaClient(Protocol):
@@ -111,7 +116,7 @@ async def send_reply(
     text: str,
     factset: FactSet | None = None,
     receipt_id: str = "",
-) -> None:
+) -> bool | None:
     import os
     if not to or os.environ.get("WA_REPLY") != "1":
         return
@@ -199,9 +204,72 @@ def add_clear_date(reply: str, claim: ExtractedClaim) -> str:
     return reply
 
 
+_YES_TOKENS = {"haan", "han", "haa", "ha", "हाँ", "हां", "जी", "ji", "yes"}
+_NO_TOKENS = {"nahin", "nahi", "na", "ना", "नहीं", "no"}
+_PHRASE_TOKENS = {"theek hai", "ठीक है", "mat karo"}
+
+
+def confirmation_value(text: str) -> bool | None:
+    cleaned = text.strip()
+    while cleaned and unicodedata.category(cleaned[0]).startswith(("P", "S")):
+        cleaned = cleaned[1:]
+    while cleaned and unicodedata.category(cleaned[-1]).startswith(("P", "S")):
+        cleaned = cleaned[:-1]
+    cleaned = re.sub(r"\s+", " ", cleaned.casefold())
+    if cleaned in _PHRASE_TOKENS:
+        return cleaned not in {"mat karo"}
+    words = set(cleaned.split())
+    if cleaned and words and words <= _YES_TOKENS:
+        return True
+    if cleaned and words and words <= _NO_TOKENS:
+        return False
+    return None
+
+
+def _confirmation_context(
+    text: str, settings: Settings, sender: str
+) -> tuple[str, FactSet] | None:
+    global _empty_salt_warning_logged
+    if not settings.session_salt:
+        if not _empty_salt_warning_logged:
+            logger.warning("WhatsApp complaint confirmation disabled: session salt is empty")
+            _empty_salt_warning_logged = True
+        return None
+    complaint = ComplaintStore(settings.database_path).latest_pending_for_sender(
+        sender_hash(sender, settings.session_salt)
+    )
+    if complaint is None:
+        if confirmation_value(text) is not None and ComplaintStore(
+            settings.database_path
+        ).latest_decided_for_sender(sender_hash(sender, settings.session_salt)):
+            return "यह शिकायत पहले ही दर्ज की जा चुकी है।", FactSet()
+        return None
+    value = confirmation_value(text)
+    if value is None:
+        return "कृपया केवल हाँ या नहीं लिखें।", FactSet()
+    decision = ComplaintStore(settings.database_path).decide(
+        complaint["complaint_id"], value
+    )
+    if decision.get("already_recorded"):
+        return (
+            "यह शिकायत पहले ही दर्ज की जा चुकी है।",
+            FactSet(),
+        )
+    if value:
+        return (
+            "आपकी शिकायत सहेज दी गई है और ब्लॉक अधिकारी के डैशबोर्ड पर दिखाई देगी।",
+            FactSet(),
+        )
+    return "ठीक है, शिकायत दर्ज नहीं की गई।", FactSet()
+
+
 def reply_context_for_text(
     text: str, receipt_id: str, settings: Settings, sender: str = ""
 ) -> tuple[str, FactSet]:
+    if sender:
+        confirmation = _confirmation_context(text, settings, sender)
+        if confirmation is not None:
+            return confirmation
     claim = extract_claim(text)
     gated = date_gate_reply(claim)
     if gated:
@@ -224,7 +292,13 @@ def reply_context_for_text(
                     "रिकॉर्ड से भुगतान की तारीख पक्की नहीं है।"
                 ), FactSet()
         return intent_reply(intent), FactSet()
-    result = reconcile_saved_text(text, receipt_id, settings)
+    if confirmation_value(text) is not None and not has_structured_claim:
+        return FORMAT_HINT, FactSet()
+    reconcile_args = (text, receipt_id, settings)
+    if "sender" in inspect.signature(reconcile_saved_text).parameters:
+        result = reconcile_saved_text(*reconcile_args, sender=sender)
+    else:
+        result = reconcile_saved_text(*reconcile_args)
     if (
         settings.session_salt
         and has_structured_claim
@@ -237,7 +311,14 @@ def reply_context_for_text(
             claim.day_candidates[0],
             result.get("receipt_id", receipt_id),
         )
-    return add_clear_date(build_reply(result, receipt_id), claim), factset_from_result(result)
+    reply = add_clear_date(build_reply(result, receipt_id), claim)
+    if result.get("complaint") and settings.session_salt and sender:
+        reply = (
+            f"दावा: गतिविधि {claim.activity}, महीना {claim.month or 'नहीं मिला'}। "
+            + reply
+        )
+        reply += " कृपया शिकायत की पुष्टि के लिए केवल हाँ या नहीं लिखें।"
+    return reply, factset_from_result(result)
 
 
 def reply_for_text(
@@ -260,16 +341,21 @@ async def _process_message(
     if message.get("type") == "text":
         text = message.get("text", {}).get("body", "")
         to = message.get("from", "")
+        failed = False
         try:
             reply, facts = reply_context_for_text(text, receipt_id, settings, to)
         except Exception as error:
             logger.warning("WhatsApp reconciliation failed: %s", type(error).__name__)
             reply = FORMAT_HINT
             facts = FactSet()
+            failed = True
         await send_reply(settings, to, reply, facts, receipt_id)
+        if failed:
+            return False
         return
     if message.get("type") == "audio":
         to = message.get("from", "")
+        failed = False
         try:
             audio = await media_client.download(message["audio"]["id"])
             text, _score = await voice_text(asr, audio)
@@ -283,7 +369,10 @@ async def _process_message(
             logger.warning("voice failed: %s", type(error).__name__)
             reply = f"आपकी आवाज़ मिल गई। रसीद ID: {receipt_id}. आवाज़ साफ़ नहीं आई, कृपया दोबारा बोलें या लिखकर भेजें।"
             facts = FactSet()
+            failed = True
         await send_reply(settings, to, reply, facts, receipt_id)
+        if failed:
+            return False
         return
 
 
@@ -306,11 +395,13 @@ async def process_message(
     if duplicate and store.status_for(message_id) == "processed":
         return
     try:
-        await _process_message(message, payload, settings, media_client, asr, receipt_id)
+        processed = await _process_message(
+            message, payload, settings, media_client, asr, receipt_id
+        )
     except Exception:
         store.mark_status(receipt_id, "failed")
         raise
-    store.mark_status(receipt_id, "processed")
+    store.mark_status(receipt_id, "processed" if processed is not False else "failed")
 
 
 async def process_payload(

@@ -39,9 +39,7 @@ class QueryMemory:
         return sqlite3.connect(self.database_path)
 
     def _sender_hash(self, sender: str) -> str:
-        return hashlib.sha256(
-            f"{self.salt}:{sender}".encode("utf-8")
-        ).hexdigest()
+        return sender_hash(sender, self.salt)
 
     def save(
         self, sender: str, activity: str, query_date: str, receipt_id: str
@@ -87,3 +85,7 @@ class QueryMemory:
             "date": row[1],
             "receipt_id": row[2],
         }
+
+
+def sender_hash(sender: str, salt: str) -> str:
+    return hashlib.sha256(f"{salt}:{sender}".encode("utf-8")).hexdigest()

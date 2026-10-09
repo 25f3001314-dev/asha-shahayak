@@ -40,6 +40,9 @@ class IntakeStore:
                 connection.execute(
                     "ALTER TABLE intake_requests ADD COLUMN status TEXT NOT NULL DEFAULT 'received'"
                 )
+                connection.execute(
+                    "UPDATE intake_requests SET status = 'processed'"
+                )
 
     def save_or_get(
         self, *, source: str, external_message_id: str, payload_json: str

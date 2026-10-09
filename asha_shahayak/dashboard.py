@@ -31,7 +31,7 @@ def page_data(settings: Settings, token: str) -> dict:
     ledger = Ledger(settings.database_path, settings.receipt_prefix)
     return {
         "token": token,
-        "complaints": complaint_store.pending(),
+        "complaints": complaint_store.confirmed(),
         "entries": ledger.entries(),
         "gaps": ledger.gaps(),
         "statuses": StatusStore(settings.database_path).all(),

@@ -43,4 +43,5 @@ async def test_complaint_is_not_filed_until_asha_confirms(tmp_path):
         "state": "rejected",
         "filed": False,
     }
-    assert confirmed.json()["state"] == "filed"
+    assert confirmed.json()["state"] == "rejected"
+    assert confirmed.json()["already_recorded"] is True
