@@ -158,3 +158,18 @@ async def _log_wa_webhook(request, call_next):
     if request.url.path == "/webhooks/whatsapp" and request.method == "POST":
         logging.getLogger(__name__).info("WA_WEBHOOK status=%s", response.status_code)
     return response
+
+
+# --- Demo chat UI (served at /chat, same database as the dashboard) ---
+from fastapi.responses import FileResponse as _FileResponse
+from demo_test_bot import main as _demo
+
+
+@app.get("/chat", include_in_schema=False)
+async def chat_page() -> _FileResponse:
+    return _FileResponse(_demo.ROOT / "index.html")
+
+
+app.add_api_route("/api/health", _demo.health, methods=["GET"], include_in_schema=False)
+app.add_api_route("/api/text", _demo.text_message, methods=["POST"], include_in_schema=False)
+app.add_api_route("/api/voice", _demo.voice_message, methods=["POST"], include_in_schema=False)
