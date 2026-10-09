@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "asha-shahayak"
 version = "0.1.0"
 description = "Safety-first payment claim intake for ASHA workers"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<4.0"
 dependencies = [
     "fastapi>=0.115,<1",
     "pydantic-settings>=2.6,<3",
