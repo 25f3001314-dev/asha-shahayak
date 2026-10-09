@@ -12,6 +12,7 @@ class RateCard:
     rate: int
     source: str
     effective_date: date
+    rate_type: str = "per_unit"
 
 
 def load_rate_cards(path: str | Path) -> list[RateCard]:
@@ -24,6 +25,7 @@ def load_rate_cards(path: str | Path) -> list[RateCard]:
                     rate=int(row["rate"]),
                     source=row["source"],
                     effective_date=date.fromisoformat(row["effective_date"]),
+                    rate_type=row.get("rate_type", "per_unit"),
                 )
             )
     return cards
@@ -59,4 +61,6 @@ def find_rate_card(
 
 def calculate_amount(claim: ExtractedClaim, cards: list[RateCard], on_date: date) -> int:
     card = find_rate_card(claim, cards, on_date)
+    if card.rate_type == "flat_monthly":
+        return card.rate
     return card.rate * claim.count

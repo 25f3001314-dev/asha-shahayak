@@ -16,7 +16,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, 
 from fastapi.responses import PlainTextResponse
 
 from .asr import AsrEngine, AsrStub, SarvamAsr
-from .audio import to_ogg_opus, to_wav_16k
+from .audio import AudioTooShortError, prepare_for_asr, to_ogg_opus, to_wav_16k
 from .config import Settings, get_settings
 from .complaints import ComplaintStore
 from .dates import format_date
@@ -25,7 +25,9 @@ from .factset import FactSet, factset_from_result
 from .intent import classify_intent, intent_reply
 from .session import QueryMemory, sender_hash
 from .reconciliation import reconcile_saved_text
+from .registry import AshaRegistry
 from .storage import IntakeStore
+from .status import StatusStore
 from .tts import synthesize_hindi
 from .validator import safe_fallback, validate_reply
 
@@ -87,7 +89,12 @@ async def voice_text(asr: AsrEngine, audio: bytes) -> tuple[str, float]:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as file:
             file.write(audio)
             temp_name = file.name
-        return await asr.transcribe(to_wav_16k(Path(temp_name).read_bytes()))
+        raw_audio = Path(temp_name).read_bytes()
+        if isinstance(asr, SarvamAsr):
+            prepared_audio = prepare_for_asr(raw_audio)
+        else:
+            prepared_audio = to_wav_16k(raw_audio)
+        return await asr.transcribe(prepared_audio)
     finally:
         if temp_name:
             Path(temp_name).unlink(missing_ok=True)
@@ -132,6 +139,10 @@ async def send_reply(
             settings.meta_graph_version,
         )
         await client.send_text(to, text)
+    except AudioTooShortError:
+        reply = "आवाज़ बहुत छोटी थी। कृपया कम से कम 2 सेकंड बोलकर दोबारा भेजें।"
+        facts = FactSet()
+        failed = False
     except Exception as error:
         response = getattr(error, "response", None)
         detail = response.text[:300] if response is not None else ""
@@ -158,12 +169,26 @@ async def _send_voice(client: Any, to: str, text: str) -> None:
 
 
 FORMAT_HINT = "Samajh nahi aaya. Aise bhejein: Vaccination march count 3 amount 250"
+ASHA_ID_PATTERN = re.compile(r"\b(ASHA-[A-Z0-9][A-Z0-9_-]*)\b", re.IGNORECASE)
+REGISTRATION_PROMPT = "पहली बार register करने के लिए अपना ASHA ID भेजें।"
+REGISTRATION_REJECTED = (
+    "ये ASHA ID इस नंबर से match नहीं हुई, कृपया अपने block/ANM से संपर्क करें।"
+)
 
 
 def build_reply(result: dict, receipt_id: str) -> str:
     if result.get("status") == "medical_emergency":
         return "यह भुगतान का दावा नहीं बना। आपातकालीन मदद के लिए 108 या 112 पर कॉल करें।"
     gap = result.get("gap") or {}
+    alias_missing = result.get("alias_missing")
+    if alias_missing and alias_missing.get("heads"):
+        heads = " ".join(
+            f"{index}. {head}" for index, head in enumerate(alias_missing["heads"], 1)
+        )
+        return (
+            f"इस नाम का रिकॉर्ड वाला मद नहीं मिला। कृपया {heads} में से "
+            "सही मद का नंबर बताएं।"
+        )
     expected = result.get("expected_amount")
     rid = result.get("receipt_id", receipt_id)
     lines = [f"प्रविष्टि मिल गई। रसीद ID: {rid}।"]
@@ -184,6 +209,27 @@ def build_reply(result: dict, receipt_id: str) -> str:
         lines.append("रिकॉर्ड से अंतर तय नहीं हो सका।")
     if "SAMPLE_ONLY" in str(gap.get("trace", "")):
         lines.append("(रेट अभी नमूना है, सत्यापित नहीं।)")
+    status = result.get("officer_status")
+    if status:
+        stage = status["stage"]
+        if stage == "paid":
+            lines.append(
+                f"ब्लॉक रिकॉर्ड में भुगतान हो चुका है: ₹{status['approved_amount']}। "
+                f"स्थिति की तारीख: {status.get('stage_date') or 'तारीख नहीं दी गई'}।"
+            )
+        else:
+            labels = {
+                "anm_pending": "ANM voucher pending",
+                "moic_pending": "MOIC approval pending",
+                "bam_pending": "BAM payment pending",
+            }
+            lines.append(f"ब्लॉक रिकॉर्ड में स्थिति: {labels[stage]}।")
+            lines.append(
+                "सामान्य चक्र के अनुसार, पक्का नहीं: 20 तारीख ANM voucher, "
+                "28 तारीख MOIC approval, अगले महीने की 5 तारीख BAM payment।"
+            )
+    elif result.get("officer_status_checked"):
+        lines.append("इस मद की प्रविष्टि ब्लॉक के रिकॉर्ड में नहीं मिली।")
     return " ".join(lines)
 
 
@@ -208,6 +254,10 @@ _YES_TOKENS = {"haan", "han", "haa", "ha", "हाँ", "हां", "जी", "
 _NO_TOKENS = {"nahin", "nahi", "na", "ना", "नहीं", "no"}
 _YES_PHRASES = {"theek hai", "ठीक है"}
 _NO_PHRASES = {"mat karo", "मत करो"}
+_ESCAPE_PHRASES = (
+    "रद्द करो", "रद्द", "cancel", "शुरू से", "shuru se", "main menu",
+    "मुख्य मेनू", "reset",
+)
 
 
 def decided_reply(state: str) -> str:
@@ -230,11 +280,21 @@ def confirmation_value(text: str) -> bool | None:
     if cleaned in _NO_PHRASES:
         return False
     words = set(cleaned.split())
-    if cleaned and words and words <= _YES_TOKENS:
+    has_yes = any(word in _YES_TOKENS for word in words)
+    has_no = any(word in _NO_TOKENS for word in words)
+    if has_yes and has_no:
+        return None
+    confirmation_fillers = {"bilkul", "theek", "ठीक", "है", "hai", "जी"}
+    if cleaned and has_yes and words <= (_YES_TOKENS | confirmation_fillers):
         return True
-    if cleaned and words and words <= _NO_TOKENS:
+    if cleaned and has_no and words <= (_NO_TOKENS | confirmation_fillers):
         return False
     return None
+
+
+def is_escape_command(text: str) -> bool:
+    normalized = " ".join(text.casefold().split())
+    return any(phrase in normalized for phrase in _ESCAPE_PHRASES)
 
 
 def _confirmation_context(
@@ -246,6 +306,11 @@ def _confirmation_context(
             logger.warning("WhatsApp complaint confirmation disabled: session salt is empty")
             _empty_salt_warning_logged = True
         return None
+    if is_escape_command(text):
+        sender_key = sender_hash(sender, settings.session_salt)
+        ComplaintStore(settings.database_path).reset_sender_state(sender_key)
+        QueryMemory(settings.database_path, settings.session_salt).clear(sender)
+        return "ठीक है। पिछली प्रक्रिया रद्द कर दी गई है। आप शुरू से बताइए।", FactSet()
     complaint = ComplaintStore(settings.database_path).latest_pending_for_sender(
         sender_hash(sender, settings.session_salt)
     )
@@ -259,6 +324,18 @@ def _confirmation_context(
         return None
     value = confirmation_value(text)
     if value is None:
+        retries = ComplaintStore(settings.database_path).increment_confirmation_retry(
+            complaint["complaint_id"]
+        )
+        if retries >= 3:
+            ComplaintStore(settings.database_path).reset_sender_state(
+                sender_hash(sender, settings.session_salt)
+            )
+            return (
+                "उत्तर स्पष्ट नहीं मिला। प्रक्रिया रीसेट कर दी गई है। "
+                "कृपया अपना सवाल फिर से भेजें।",
+                FactSet(),
+            )
         return "कृपया केवल हाँ या नहीं लिखें।", FactSet()
     decision = ComplaintStore(settings.database_path).decide(
         complaint["complaint_id"], value
@@ -274,13 +351,49 @@ def _confirmation_context(
 
 
 def reply_context_for_text(
-    text: str, receipt_id: str, settings: Settings, sender: str = ""
+    text: str,
+    receipt_id: str,
+    settings: Settings,
+    sender: str = "",
+    demo_asha_id: str | None = None,
 ) -> tuple[str, FactSet]:
+    registry = AshaRegistry(settings.database_path, settings.session_salt)
+    resolved_asha_id: str | None = None
+    registration_active = bool(settings.session_salt and registry.has_entries())
+    if demo_asha_id is not None:
+        resolved_asha_id = demo_asha_id
+    elif registration_active:
+        resolved_asha_id = registry.resolve_sender(sender)
+        if resolved_asha_id is None:
+            id_match = ASHA_ID_PATTERN.search(text)
+            if id_match is None:
+                return REGISTRATION_PROMPT, FactSet()
+            requested_id = id_match.group(1).upper()
+            if not registry.bind_sender(requested_id, sender):
+                return REGISTRATION_REJECTED, FactSet()
+            return f"आपका registration हो गया, ASHA ID: {requested_id}।", FactSet()
     if sender:
         confirmation = _confirmation_context(text, settings, sender)
         if confirmation is not None:
             return confirmation
-    claim = extract_claim(text)
+    status_store = StatusStore(settings.database_path)
+    normalized_text = text
+    for spoken_name, head in status_store.aliases():
+        normalized_text = re.sub(
+            re.escape(spoken_name), head, normalized_text, flags=re.IGNORECASE
+        )
+    claim = extract_claim(normalized_text)
+    if claim.activity is None and claim.month:
+        heads = status_store.heads_for_month(claim.month)
+        if heads:
+            options = " ".join(
+                f"{index}. {head}" for index, head in enumerate(heads, 1)
+            )
+            return (
+                f"इस नाम का रिकॉर्ड वाला मद नहीं मिला। कृपया {options} में से "
+                "सही मद का नंबर बताएं।",
+                FactSet(),
+            )
     gated = date_gate_reply(claim)
     if gated:
         return gated, FactSet()
@@ -304,11 +417,13 @@ def reply_context_for_text(
         return intent_reply(intent), FactSet()
     if confirmation_value(text) is not None and not has_structured_claim:
         return FORMAT_HINT, FactSet()
-    reconcile_args = (text, receipt_id, settings)
-    if "sender" in inspect.signature(reconcile_saved_text).parameters:
-        result = reconcile_saved_text(*reconcile_args, sender=sender)
-    else:
-        result = reconcile_saved_text(*reconcile_args)
+    parameters = inspect.signature(reconcile_saved_text).parameters
+    kwargs = {}
+    if "sender" in parameters:
+        kwargs["sender"] = sender
+    if "asha_id" in parameters:
+        kwargs["asha_id"] = resolved_asha_id
+    result = reconcile_saved_text(normalized_text, receipt_id, settings, **kwargs)
     if (
         settings.session_salt
         and has_structured_claim
@@ -332,9 +447,15 @@ def reply_context_for_text(
 
 
 def reply_for_text(
-    text: str, receipt_id: str, settings: Settings, sender: str = ""
+    text: str,
+    receipt_id: str,
+    settings: Settings,
+    sender: str = "",
+    demo_asha_id: str | None = None,
 ) -> str:
-    return reply_context_for_text(text, receipt_id, settings, sender)[0]
+    return reply_context_for_text(
+        text, receipt_id, settings, sender, demo_asha_id
+    )[0]
 
 
 async def _process_message(

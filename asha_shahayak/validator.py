@@ -15,6 +15,10 @@ _STATUS_WORDS = (
     "नहीं मिला",
     "आया",
     "नहीं आया",
+    "paid",
+    "voucher",
+    "approval",
+    "payment",
 )
 
 
@@ -34,7 +38,9 @@ def validate_reply(reply_text: str, factset: FactSet) -> tuple[bool, list[str]]:
         for match in _AMOUNT_PATTERN.finditer(reply_text)
     }
     allowed_amounts = _fact_values(
-        factset, ("amount", "expected_amount", "reported_amount", "gap_amount")
+        factset,
+        ("amount", "expected_amount", "reported_amount", "gap_amount",
+         "claimed_amount", "approved_amount"),
     )
     for amount in sorted(amounts):
         if amount not in allowed_amounts:
@@ -57,6 +63,16 @@ def validate_reply(reply_text: str, factset: FactSet) -> tuple[bool, list[str]]:
             EvidenceState.SMS,
         ):
             reasons.append("status_not_evidenced")
+
+    if "इस मद की प्रविष्टि ब्लॉक के रिकॉर्ड में नहीं मिली" in reply_text:
+        if factset.get("no_block_record") is None:
+            reasons.append("no_block_record_not_evidenced")
+    if any(
+        phrase in reply_text.casefold()
+        for phrase in ("anm voucher", "moic approval", "bam payment", "भुगतान हो चुका")
+    ):
+        if factset.get("block_stage") is None:
+            reasons.append("block_stage_not_evidenced")
 
     return not reasons, reasons
 

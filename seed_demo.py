@@ -17,7 +17,8 @@ def seed(path: str) -> None:
     )
     complaints.decide("DEMO-complaint-1", True)
     StatusStore(path).import_csv(
-        b"activity,month,status,amount\nvaccination,march,DEMO credited,300\n"
+        b"asha_id,month,head,claimed_amount,approved_amount,stage,stage_date\n"
+        b",march,vaccination,250,300,paid,2026-04-05\n"
     )
     print(f"DEMO rows added to {path}")
 

@@ -64,8 +64,12 @@ uvicorn asha_shahayak.api:app --reload
 
 Open `http://127.0.0.1:8000/dashboard?token=my-local-token`. The page reads
 pending complaints, ledger hashes, gap traces, and uploaded officer status rows
-from SQLite. Upload CSVs with exactly `activity,month,status,amount`; invalid
-columns or months show a clear error. For local-only demo data, run
+from SQLite. The dashboard upload requires both an ASHA registry CSV with
+`asha_id,phone_number` and a working status CSV with
+`asha_id,month,head,claimed_amount,approved_amount,stage,stage_date`.
+The two files are validated together; after a successful upload, they replace
+the previous registry and status datasets. Invalid columns, months, stages, or
+amounts leave the existing data unchanged. For local-only demo data, run
 `python seed_demo.py --database asha_shahayak.sqlite3`; every seeded row is
 labelled `DEMO`.
 

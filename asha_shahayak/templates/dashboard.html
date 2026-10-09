@@ -1,45 +1,157 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>Block officer dashboard</title></head>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Block officer dashboard</title>
+  <style>
+    :root { --ink:#172033; --muted:#667085; --line:#dfe5ee; --surface:#fff; --page:#f4f7fb; --primary:#1769aa; --primary-dark:#0f4f82; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:var(--page); font:15px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    .shell { width:min(1180px,calc(100% - 32px)); margin:auto; padding:32px 0 48px; }
+    header { margin-bottom:24px; text-align:center; }
+    h1,h2 { margin:0; line-height:1.2; }
+    h1 { font-size:clamp(1.65rem,3vw,2.25rem); }
+    h2 { font-size:1.15rem; margin-bottom:16px; }
+    .subtitle,.hint,.empty { color:var(--muted); }
+    .subtitle { margin:8px 0 0; }
+    .message { background:#e9f8ef; border:1px solid #bce8ca; border-radius:8px; color:#176b3a; margin:0 0 20px; padding:12px 16px; }
+    .upload-button { background:var(--primary); transition:opacity .2s; }
+    .upload-button.has-data { background:#98a2b3; cursor:not-allowed; opacity:.65; }
+    .upload-button.has-data:hover { background:#98a2b3; }
+    .upload-another { background:#475467; }
+    .grid { display:grid; gap:20px; grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .card { background:var(--surface); border:1px solid var(--line); border-radius:12px; box-shadow:0 2px 8px rgb(23 32 51 / 5%); padding:22px; margin-bottom:20px; }
+    .centered-state { text-align:center; }
+    .upload-form,.reason-form { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
+    .reason-form { margin-top:8px; gap:8px; }
+    input[type=file],input[type=text],select { border:1px solid #c9d2df; border-radius:7px; background:#fff; min-height:40px; padding:8px 10px; }
+    input[type=file] { flex:1 1 260px; }
+    input[type=text] { width:180px; }
+    button { border:0; border-radius:7px; background:var(--primary); color:#fff; cursor:pointer; font:inherit; font-weight:600; min-height:40px; padding:8px 16px; }
+    button:hover { background:var(--primary-dark); }
+    .reason-form button { min-height:34px; padding:5px 12px; }
+    .hint { margin:10px 0 18px; }
+    .empty { background:#f8fafc; border:1px dashed var(--line); border-radius:8px; padding:14px; }
+    .rule { background:#f8fafc; border:1px solid var(--line); border-radius:8px; margin-top:18px; padding:14px 16px; }
+    .rule h3 { font-size:1rem; margin:0 0 8px; }
+    .rule p { margin:6px 0; }
+    .rule code { background:#eef2f7; border-radius:4px; padding:2px 5px; }
+    .rule pre { background:rgb(23 32 51 / 50%); border-radius:6px; color:#f8fafc; font-size:.83rem; margin:10px 0 0; overflow-x:auto; padding:12px; }
+    .table-wrap { overflow-x:auto; }
+    table { border-collapse:collapse; min-width:620px; width:100%; }
+    th,td { border-bottom:1px solid var(--line); padding:11px 12px; text-align:left; vertical-align:top; }
+    th { background:#f8fafc; color:#475467; font-size:.85rem; white-space:nowrap; }
+    tr:last-child td { border-bottom:0; }
+    @media (max-width:720px) {
+      .shell { width:calc(100% - 20px); padding-top:20px; }
+      .grid { grid-template-columns:1fr; }
+      .card { padding:17px; }
+    }
+  </style>
+</head>
 <body>
-<h1>Block officer dashboard</h1>
-{% if message %}<p>{{ message }}</p>{% endif %}
+<main class="shell">
+  <header>
+    <h1>Block Officer Dashboard</h1>
+    <p class="subtitle">ASHA records, officer status updates, complaints and ledger activity</p>
+  </header>
+  {% if message %}<p class="message" role="status">{{ message }}</p>{% endif %}
 
-<h2>ASHA-confirmed complaints (not sent to any government system)</h2>
-{% if complaints %}
-<ul>
-{% for complaint in complaints %}
-<li>
-  {{ complaint.complaint_id }} - {{ complaint.draft }}
-  <form method="post" action="/dashboard/complaints/{{ complaint.complaint_id }}/reason?token={{ token }}">
-    <select name="reason_code">
-    {% for code in reason_codes %}
-      <option value="{{ code }}" {% if complaint.reason_code == code %}selected{% endif %}>{{ code }}</option>
-    {% endfor %}
-    </select>
-    <button type="submit">Save reason</button>
-  </form>
-</li>
-{% endfor %}
-</ul>
-{% else %}<p>No entries yet</p>{% endif %}
+  <section class="card">
+    <h2 class="centered-state">ASHA-confirmed complaints</h2>
+    <p class="subtitle centered-state">These complaints are not sent to any government system.</p>
+    {% if complaints %}
+    <ul>
+      {% for complaint in complaints %}
+      <li>
+        {{ complaint.complaint_id }}: {{ complaint.draft }}
+        <form class="reason-form" method="post" action="/dashboard/complaints/{{ complaint.complaint_id }}/reason?token={{ token }}">
+          <select name="reason_code">
+            {% for code in reason_codes %}<option value="{{ code }}" {% if complaint.reason_code == code %}selected{% endif %}>{{ code }}</option>{% endfor %}
+          </select>
+          <button type="submit">Save reason</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="empty">No entries yet. No confirmed complaints.</p>{% endif %}
+  </section>
 
-<h2>Ledger entries</h2>
-{% if entries %}<table border="1"><tr><th>Receipt ID</th><th>Previous hash</th><th>Hash</th></tr>
-{% for entry in entries %}<tr><td>{{ entry[1] }}</td><td>{{ entry[2] }}</td><td>{{ entry[3] }}</td></tr>{% endfor %}
-</table>{% else %}<p>No entries yet</p>{% endif %}
+  <div class="grid">
+    <section class="card">
+      <h2>Ledger entries</h2>
+      {% if entries %}
+      <div class="table-wrap"><table><thead><tr><th>Receipt ID</th><th>Previous hash</th><th>Hash</th></tr></thead><tbody>
+        {% for entry in entries %}<tr><td>{{ entry[1] }}</td><td>{{ entry[2] }}</td><td>{{ entry[3] }}</td></tr>{% endfor %}
+      </tbody></table></div>
+      {% else %}<p class="empty">No entries yet. No ledger records.</p>{% endif %}
+    </section>
+    <section class="card">
+      <h2>Gap traces</h2>
+      {% if gaps %}
+      <div class="table-wrap"><table><thead><tr><th>Receipt ID</th><th>Stage</th><th>Rupee mismatch</th><th>Trace</th></tr></thead><tbody>
+        {% for gap in gaps %}<tr><td>{{ gap[0] }}</td><td>{{ gap[1] }}</td><td>{{ gap[2] }}</td><td>{{ gap[3] }}</td></tr>{% endfor %}
+      </tbody></table></div>
+      {% else %}<p class="empty">No entries yet. No gap traces.</p>{% endif %}
+    </section>
+  </div>
 
-<h2>Gap traces</h2>
-{% if gaps %}<table border="1"><tr><th>Receipt ID</th><th>Stage</th><th>Rupee mismatch</th><th>Trace</th></tr>
-{% for gap in gaps %}<tr><td>{{ gap[0] }}</td><td>{{ gap[1] }}</td><td>{{ gap[2] }}</td><td>{{ gap[3] }}</td></tr>{% endfor %}
-</table>{% else %}<p>No entries yet</p>{% endif %}
+  <section class="card">
+    <h2>Upload ASHA data</h2>
+    <p class="hint">Select both CSV files. A successful upload replaces the previous registry and working status data.</p>
+    <form class="upload-form" method="post" enctype="multipart/form-data" action="/dashboard/data?token={{ token }}">
+      <label>ASHA registry CSV
+        <input type="file" name="registry_file" accept=".csv" required aria-label="ASHA registry CSV file">
+      </label>
+      <label>ASHA working status CSV
+        <input type="file" name="status_file" accept=".csv" required aria-label="ASHA working status CSV file">
+      </label>
+      <button class="upload-button{% if has_uploaded_data %} has-data{% endif %}" type="submit" {% if has_uploaded_data %}disabled{% endif %}>
+        Upload both files
+      </button>
+      {% if has_uploaded_data %}
+      <button class="upload-another" type="button" onclick="this.form.reset(); this.form.querySelector('button[type=submit]').disabled = false; this.form.querySelector('button[type=submit]').classList.remove('has-data'); this.hidden = true;">
+        Upload another
+      </button>
+      {% endif %}
+    </form>
+    <p class="hint">Registry columns: <strong>asha_id, phone_number</strong>. Phone numbers are hashed and not stored.</p>
+    <form class="upload-form" method="post" action="/dashboard/registry/reset?token={{ token }}">
+      <input type="text" name="asha_id" placeholder="ASHA-1" required aria-label="ASHA ID">
+      <button type="submit">Reset ASHA binding</button>
+    </form>
+  </section>
 
-<h2>Officer status CSV</h2>
-<form method="post" enctype="multipart/form-data" action="/dashboard/status?token={{ token }}">
-  <input type="file" name="file" accept=".csv" required><button type="submit">Upload</button>
-</form>
-{% if statuses %}<table border="1"><tr><th>Activity</th><th>Month</th><th>Status</th><th>Amount</th></tr>
-{% for row in statuses %}<tr><td>{{ row.activity }}</td><td>{{ row.month }}</td><td>{{ row.status }}</td><td>{{ row.amount }}</td></tr>{% endfor %}
-</table>{% else %}<p>No entries yet</p>{% endif %}
+  <section class="card">
+    <h2>ASHA working status CSV rule</h2>
+    <p class="hint">The second file contains the current working and payment status for ASHA workers.</p>
+      <div class="rule">
+        <h3>CSV rule for payment status</h3>
+        <p>Each row represents one ASHA worker, one month and one payment head.</p>
+        <p>Use this exact header:
+          <code>asha_id,month,head,claimed_amount,approved_amount,stage,stage_date</code>
+        </p>
+        <p><code>month</code> must be an English month name, amounts must be whole numbers,
+          and <code>stage</code> must be <code>anm_pending</code>, <code>moic_pending</code>,
+          <code>bam_pending</code> or <code>paid</code>. These mean ANM voucher pending,
+          MOIC approval pending, BAM payment pending and payment complete. Use
+          <code>YYYY-MM-DD</code> for the date.</p>
+        <pre>asha_id,month,head,claimed_amount,approved_amount,stage,stage_date
+ASHA-104,march,vaccination,300,300,paid,2026-03-28
+ASHA-217,march,home_visit,450,300,moic_pending,2026-03-30</pre>
+      </div>
+  </section>
+
+  <section class="card">
+    <h2 class="centered-state">Merged ASHA data used by chatbot</h2>
+    {% if merged_rows %}
+    <div class="table-wrap"><table><thead><tr><th>ASHA ID</th><th>Registered</th><th>Month</th><th>Head</th><th>Claimed</th><th>Approved</th><th>Stage</th><th>Stage date</th></tr></thead><tbody>
+      {% for row in merged_rows %}<tr><td>{{ row.asha_id }}</td><td>{% if row.registered %}Yes{% else %}No{% endif %}</td><td>{{ row.month }}</td><td>{{ row.head }}</td><td>{{ row.claimed_amount }}</td><td>{{ row.approved_amount }}</td><td>{{ row.stage }}</td><td>{{ row.stage_date }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% else %}<p class="empty centered-state">No entries yet. No uploaded ASHA data yet.</p>{% endif %}
+    <p class="hint centered-state">The chatbot reads the current merged registry and working status data shown here.</p>
+  </section>
+</main>
 </body>
 </html>

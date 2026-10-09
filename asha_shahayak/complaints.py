@@ -34,6 +34,10 @@ class ComplaintStore:
                 db.execute(
                     "UPDATE complaints SET created_at = updated_at WHERE created_at = ''"
                 )
+            if not any(column[1] == "confirmation_retries" for column in columns):
+                db.execute(
+                    "ALTER TABLE complaints ADD COLUMN confirmation_retries INTEGER NOT NULL DEFAULT 0"
+                )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
@@ -145,3 +149,23 @@ class ComplaintStore:
                 (state, datetime.now(timezone.utc).isoformat(), complaint_id),
             )
         return {"complaint_id": complaint_id, "state": state, "filed": confirm}
+
+    def increment_confirmation_retry(self, complaint_id: str) -> int:
+        with self._connect() as db:
+            db.execute(
+                "UPDATE complaints SET confirmation_retries = confirmation_retries + 1, "
+                "updated_at = ? WHERE complaint_id = ? AND state = 'draft'",
+                (datetime.now(timezone.utc).isoformat(), complaint_id),
+            )
+            row = db.execute(
+                "SELECT confirmation_retries FROM complaints WHERE complaint_id = ?",
+                (complaint_id,),
+            ).fetchone()
+        return int(row["confirmation_retries"]) if row else 0
+
+    def reset_sender_state(self, sender_hash: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                "DELETE FROM complaints WHERE sender_hash = ? AND state = 'draft'",
+                (sender_hash,),
+            )

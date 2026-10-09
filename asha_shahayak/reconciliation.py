@@ -13,7 +13,11 @@ from .status import StatusStore
 
 
 def reconcile_saved_text(
-    text: str, receipt_id: str, settings: Settings, sender: str = ""
+    text: str,
+    receipt_id: str,
+    settings: Settings,
+    sender: str = "",
+    asha_id: str | None = None,
 ) -> dict[str, Any]:
     claim = extract_claim(text)
     if claim.emergency:
@@ -53,14 +57,30 @@ def reconcile_saved_text(
         "receipt_id": entry["receipt_id"],
         "intake_receipt_id": receipt_id,
         "expected_amount": expected,
+        "reported_amount": claim.reported_amount,
         "gap": gap.__dict__,
-        "officer_status": StatusStore(settings.database_path).find(
-            claim.activity, claim.month
-        ),
+        "officer_status": None,
+        "officer_status_checked": False,
     }
+    if claim.month and claim.activity:
+        statuses = StatusStore(settings.database_path)
+        head = statuses.resolve_head(claim.activity)
+        if head:
+            result["officer_status"] = statuses.find(
+                head, claim.month, asha_id=asha_id
+            )
+            result["officer_status_checked"] = True
+            result["asha_id"] = asha_id
+        else:
+            result["alias_missing"] = {
+                "spoken_name": claim.activity,
+                "heads": statuses.heads_for_month(claim.month),
+            }
     if len(claim.day_candidates) == 1:
         result["query_date"] = claim.day_candidates[0]
-    if gap.found and gap.rupees >= 0:
+    if (gap.found and gap.rupees >= 0) or (
+        result["officer_status_checked"] and result["officer_status"] is None
+    ):
         complaint_store = ComplaintStore(settings.database_path)
         existing_complaint = complaint_store.for_receipt(entry["receipt_id"])
         if existing_complaint:

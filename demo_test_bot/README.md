@@ -19,4 +19,5 @@ vaccination july count 3 amount 250
 
 Text testing works without external credentials. Voice transcription requires
 `ASHA_SARVAM_API_KEY`; credentials stay in the environment and are not stored
-by this demo. Demo records are stored in `demo_test_bot/demo.sqlite3`.
+by this demo. The demo uses the shared `Settings` configuration and therefore the same
+`ASHA_DATABASE_PATH` database as the production app when that variable is set.

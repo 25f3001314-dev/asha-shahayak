@@ -1,5 +1,5 @@
 # SAMPLE ONLY - NOT OFFICIAL UP RATES. Replace this CSV with verified rates.
-activity,rate,source,effective_date
-vaccination,100,SAMPLE_ONLY,2026-01-01
-home_visit,150,SAMPLE_ONLY,2026-01-01
-antenatal_visit,200,SAMPLE_ONLY,2026-01-01
+activity,rate,source,effective_date,rate_type
+vaccination,100,SAMPLE_ONLY,2026-01-01,per_unit
+home_visit,150,SAMPLE_ONLY,2026-01-01,per_visit
+antenatal_visit,200,SAMPLE_ONLY,2026-01-01,per_visit

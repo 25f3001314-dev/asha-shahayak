@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     """Runtime configuration; thresholds are intentionally tunable."""
 
     database_path: str = "asha_shahayak.sqlite3"
+    registry_csv_path: str = "registry.csv"
+    status_csv_path: str = "status.csv"
     confidence_high_threshold: float = 0.9
     confidence_medium_threshold: float = 0.6
     receipt_prefix: str = "ASHA"

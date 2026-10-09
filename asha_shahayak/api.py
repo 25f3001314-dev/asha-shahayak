@@ -1,6 +1,7 @@
 import logging
 import json
 import secrets
+from pathlib import Path
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Annotated, Any
@@ -10,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import Settings, get_settings
 from .complaints import ComplaintStore
+from .data_handler import CsvDataHandler
 from .dashboard import router as dashboard_router
 from .reconciliation import reconcile_saved_text
 from .storage import IntakeStore
@@ -63,6 +65,11 @@ def require_api_key(
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     get_settings.cache_clear()
+    settings = get_settings()
+    if Path(settings.registry_csv_path).exists() and Path(settings.status_csv_path).exists():
+        handler = CsvDataHandler(settings.registry_csv_path, settings.status_csv_path)
+        handler.load()
+        app.state.csv_data = handler
     yield
 
 

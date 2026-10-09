@@ -86,6 +86,13 @@ class QueryMemory:
             "receipt_id": row[2],
         }
 
+    def clear(self, sender: str) -> None:
+        with self._connect() as database:
+            database.execute(
+                "DELETE FROM confirmed_queries WHERE sender_hash = ?",
+                (self._sender_hash(sender),),
+            )
+
 
 def sender_hash(sender: str, salt: str) -> str:
     return hashlib.sha256(f"{salt}:{sender}".encode("utf-8")).hexdigest()

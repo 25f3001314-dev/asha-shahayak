@@ -5,36 +5,72 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ASHA Shahayak - Local Demo Bot</title>
   <style>
-    :root{font-family:system-ui,sans-serif;color:#202124;background:#f5f7fb}
+    :root{font-family:system-ui,sans-serif;color:#202124;background:#dce5e8}
     body{max-width:800px;margin:0 auto;padding:24px}
-    main{background:white;border-radius:14px;padding:20px;box-shadow:0 2px 12px #0001}
-    h1{margin-top:0}.hint{color:#5f6368}
-    #chat{min-height:260px;border:1px solid #dfe3eb;border-radius:10px;padding:12px;margin:16px 0;white-space:pre-wrap}
-    .msg{padding:10px 12px;border-radius:10px;margin:8px 0;max-width:90%}
-    .user{background:#e8f0fe;margin-left:auto}.bot{background:#eef7ee}
+    main{background:#f0f2f5;border-radius:14px;overflow:hidden;box-shadow:0 2px 12px #0002}
+    .chat-header{align-items:center;background:#075e54;color:white;display:flex;gap:12px;padding:14px 18px}
+    .avatar{align-items:center;background:#d9f5ed;border:2px solid #a7e5d5;border-radius:50%;display:flex;font-size:2.35rem;height:68px;justify-content:center;width:68px}
+    .chat-header h1{font-size:1.45rem;margin:0}.chat-header p{display:none}
+    .chat-body{padding:18px}
+    .hint{color:#5f6368}
+    #chat{background:#e5ddd5;border:1px solid #d2c8bf;border-radius:10px;display:flex;flex-direction:column;gap:4px;min-height:320px;padding:14px;margin:16px 0;white-space:pre-wrap}
+    .msg{border-radius:8px;box-shadow:0 1px 1px #0002;max-width:82%;padding:9px 12px;position:relative}
+    .msg::after{bottom:0;content:"";position:absolute}
+    .user{align-self:flex-end;background:#dcf8c6;border-top-right-radius:2px;margin-left:auto}
+    .user::after{border-left:7px solid #dcf8c6;border-bottom:7px solid transparent;right:-6px}
+    .bot{align-self:flex-start;background:#fff;border-top-left-radius:2px;margin-right:auto}
+    .bot::after{border-right:7px solid #fff;border-bottom:7px solid transparent;left:-6px}
+    .error{align-self:flex-start;background:#ffe5e5;color:#9b1c1c}
+    .composer{background:#f0f2f5;padding-top:4px}
+    .text-composer{align-items:flex-end;display:flex;gap:8px}
+    .text-composer textarea{flex:1;margin:8px 0 0}
+    .text-composer #send{flex:0 0 auto;margin:8px 0 0}
     textarea{width:100%;box-sizing:border-box;padding:10px;border:1px solid #bbc3d0;border-radius:8px}
-    button{border:0;border-radius:8px;padding:10px 14px;margin:8px 6px 0 0;cursor:pointer}
-    #send{background:#1769e0;color:white}.voice{background:#188038;color:white}.stop{background:#d93025;color:white}
+    button{align-items:center;border:0;border-radius:50%;display:inline-flex;font-size:1.45rem;height:52px;justify-content:center;margin:8px 6px 0 0;padding:0;width:52px;cursor:pointer}
+    #send{background:#128c7e;color:white}.voice{background:#188038;color:white}.stop{background:#d93025;color:white}
+    #uploadBtn{background:#667781;color:white}
     button:disabled{opacity:.5;cursor:not-allowed}
     code{background:#f1f3f4;padding:2px 5px;border-radius:4px}
     #status{font-size:.9rem}.error{color:#b3261e}
+    @media (max-width:600px){
+      body{padding:0}
+      main{border-radius:0;min-height:100vh}
+      .chat-header{padding:12px 14px}
+      .chat-body{padding:12px}
+      #chat{border-radius:8px;min-height:calc(100vh - 330px);padding:10px}
+      .msg{max-width:88%;padding:10px 11px}
+      .hint{font-size:.9rem;margin:8px 0}
+      .composer{padding-bottom:env(safe-area-inset-bottom,8px)}
+      .text-composer{gap:6px}
+      .text-composer textarea{font-size:16px;min-height:52px;resize:none}
+      button{height:54px;width:54px}
+      .composer > div:last-of-type{display:flex;gap:4px;justify-content:flex-start}
+      .composer > div:last-of-type button{margin-right:2px}
+    }
   </style>
 </head>
 <body>
 <main>
-  <h1>ASHA Shahayak Local Demo Bot</h1>
-  <p class="hint">WhatsApp के बिना text भेजें या microphone से voice note record करें।</p>
-  <p id="status">Checking local bot...</p>
-  <section id="chat" aria-live="polite">Bot ready. Example: <code>vaccination july count 3 amount 250</code></section>
+  <header class="chat-header">
+    <div class="avatar" role="img" aria-label="ASHA worker">👩🏽‍⚕️</div>
+    <div><h1>ASHA Shahayak</h1><p id="status">Checking local bot...</p></div>
+  </header>
+  <div class="chat-body">
+  <p class="hint">बोलकर हमें अपनी समस्या भेजिए</p>
+  <section id="chat" aria-live="polite"><div class="msg bot">नमस्ते। मैं ASHA Shahayak हूँ।<br><small>उदाहरण: vaccination july count 3 amount 250</small></div></section>
+  <div class="composer">
+  <div class="text-composer">
   <textarea id="text" rows="3" placeholder="अपना message लिखें..."></textarea>
+  <button id="send" type="button" aria-label="Send text" title="Send text">➤</button>
+  </div>
   <div>
-    <button id="send">Send text</button>
-    <button id="record" class="voice">Start voice note</button>
-    <button id="stop" class="stop" disabled>Stop and send</button>
-    <button id="uploadBtn" type="button">Upload audio file</button>
+    <button id="record" class="voice" type="button" aria-label="Start voice note" title="Start voice note">🎙</button>
+    <button id="stop" class="stop" type="button" aria-label="Stop and send voice note" title="Stop and send voice note" disabled>■</button>
+    <button id="uploadBtn" type="button" aria-label="Upload audio file" title="Upload audio file">📎</button>
     <input id="audioFile" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg" hidden>
   </div>
-  <p class="hint">Voice transcription के लिए <code>ASHA_SARVAM_API_KEY</code> चाहिए। Text mode बिना key के चलता है।</p>
+  </div>
+  </div>
 </main>
 <script>
 const chat = document.querySelector("#chat");
@@ -138,9 +174,9 @@ audioFile.onchange = async () => {
 };
 
 fetch("/api/health").then((response) => response.json()).then((data) => {
-  status.textContent = data.voice_transcription ? "Ready - text and voice enabled" : "Ready - text enabled; voice needs Sarvam key";
+  status.textContent = data.voice_transcription ? "तैयार - text और voice दोनों चालू हैं ( prototype bot )" : "तैयार - text चालू है, voice के लिए Sarvam key चाहिए ( prototype bot )";
 }).catch(() => {
-  status.textContent = "Bot server is not running";
+  status.textContent = "Bot server चालू नहीं है";
 });
 </script>
 </body>

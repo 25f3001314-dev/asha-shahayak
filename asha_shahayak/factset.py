@@ -34,14 +34,36 @@ class FactSet:
 
 
 def factset_from_result(result: dict[str, Any]) -> FactSet:
+    officer_status = result.get("officer_status")
     facts: list[Fact] = [
         Fact(
             "payment_status",
-            None,
-            EvidenceState.UNKNOWN,
-            "no_payment_evidence",
+            officer_status["stage"] if officer_status else None,
+            EvidenceState.VERIFIED if officer_status else EvidenceState.UNKNOWN,
+            "block_csv" if officer_status else "no_payment_evidence",
         )
     ]
+    if officer_status:
+        facts.extend(
+            (
+                Fact("block_stage", officer_status["stage"], EvidenceState.VERIFIED, "block_csv"),
+                Fact("block_head", officer_status["head"], EvidenceState.VERIFIED, "block_csv"),
+            )
+        )
+        for name in ("claimed_amount", "approved_amount"):
+            if officer_status.get(name) is not None:
+                facts.append(
+                    Fact(name, officer_status[name], EvidenceState.VERIFIED, "block_csv")
+                )
+        if officer_status.get("stage_date"):
+            facts.append(
+                Fact("stage_date", officer_status["stage_date"], EvidenceState.VERIFIED, "block_csv")
+            )
+    elif result.get("officer_status_checked"):
+        facts.append(Fact("no_block_record", True, EvidenceState.VERIFIED, "block_csv"))
+        facts.append(
+            Fact("payment_status", "not_found", EvidenceState.VERIFIED, "block_csv")
+        )
     gap = result.get("gap") or {}
     trace = tuple(gap.get("trace") or ())
     rate_source = next(
