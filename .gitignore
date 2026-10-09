@@ -223,3 +223,6 @@ demo.sqlite3
 *.sqlite3
 *.egg-info/
 .vercel
+
+.vscode/
+*.sqlite3
