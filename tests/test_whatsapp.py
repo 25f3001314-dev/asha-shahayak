@@ -672,3 +672,29 @@ async def test_conversion_failure_still_sends_text(webhook_settings, audio_env, 
     assert len(meta.texts) == 1
     assert meta.uploads == []
     assert meta.audios == []
+
+
+from asha_shahayak.whatsapp import confirmation_value, decided_reply
+
+
+def test_mat_karo_is_no():
+    assert confirmation_value("mat karo") is False
+    assert confirmation_value("मत करो") is False
+    assert confirmation_value("Mat karo!") is False
+
+
+def test_theek_hai_is_yes():
+    assert confirmation_value("theek hai") is True
+    assert confirmation_value("ठीक है") is True
+
+
+def test_mixed_sentence_is_not_confirmation():
+    assert confirmation_value("haan mat karo") is None
+    assert confirmation_value("haan par amount galat hai") is None
+    assert confirmation_value("haan nahin") is None
+
+
+def test_decided_reply_does_not_claim_filed_when_rejected():
+    assert "दर्ज की जा चुकी" in decided_reply("filed")
+    assert "दर्ज की जा चुकी" not in decided_reply("rejected")
+    assert "दर्ज की जा चुकी" not in decided_reply("anything_else")

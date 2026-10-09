@@ -206,7 +206,16 @@ def add_clear_date(reply: str, claim: ExtractedClaim) -> str:
 
 _YES_TOKENS = {"haan", "han", "haa", "ha", "हाँ", "हां", "जी", "ji", "yes"}
 _NO_TOKENS = {"nahin", "nahi", "na", "ना", "नहीं", "no"}
-_PHRASE_TOKENS = {"theek hai", "ठीक है", "mat karo"}
+_YES_PHRASES = {"theek hai", "ठीक है"}
+_NO_PHRASES = {"mat karo", "मत करो"}
+
+
+def decided_reply(state: str) -> str:
+    if state == "filed":
+        return "यह शिकायत पहले ही दर्ज की जा चुकी है।"
+    if state == "rejected":
+        return "यह शिकायत आपके कहने पर दर्ज नहीं की गई थी।"
+    return "यह शिकायत पहले ही तय हो चुकी है।"
 
 
 def confirmation_value(text: str) -> bool | None:
@@ -216,8 +225,10 @@ def confirmation_value(text: str) -> bool | None:
     while cleaned and unicodedata.category(cleaned[-1]).startswith(("P", "S")):
         cleaned = cleaned[:-1]
     cleaned = re.sub(r"\s+", " ", cleaned.casefold())
-    if cleaned in _PHRASE_TOKENS:
-        return cleaned not in {"mat karo"}
+    if cleaned in _YES_PHRASES:
+        return True
+    if cleaned in _NO_PHRASES:
+        return False
     words = set(cleaned.split())
     if cleaned and words and words <= _YES_TOKENS:
         return True
@@ -239,10 +250,12 @@ def _confirmation_context(
         sender_hash(sender, settings.session_salt)
     )
     if complaint is None:
-        if confirmation_value(text) is not None and ComplaintStore(
-            settings.database_path
-        ).latest_decided_for_sender(sender_hash(sender, settings.session_salt)):
-            return "यह शिकायत पहले ही दर्ज की जा चुकी है।", FactSet()
+        if confirmation_value(text) is not None:
+            decided = ComplaintStore(settings.database_path).latest_decided_for_sender(
+                sender_hash(sender, settings.session_salt)
+            )
+            if decided:
+                return decided_reply(decided["state"]), FactSet()
         return None
     value = confirmation_value(text)
     if value is None:
@@ -251,10 +264,7 @@ def _confirmation_context(
         complaint["complaint_id"], value
     )
     if decision.get("already_recorded"):
-        return (
-            "यह शिकायत पहले ही दर्ज की जा चुकी है।",
-            FactSet(),
-        )
+        return decided_reply(decision.get("state", "")), FactSet()
     if value:
         return (
             "आपकी शिकायत सहेज दी गई है और ब्लॉक अधिकारी के डैशबोर्ड पर दिखाई देगी।",
