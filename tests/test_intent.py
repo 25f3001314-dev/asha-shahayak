@@ -27,8 +27,14 @@ def test_grievance_request_intent(text):
     assert classify_intent(text) == "grievance_request"
 
 
+@pytest.mark.parametrize("text", ["नमस्ते", "hii namaste", "hello"])
+def test_greeting_intent_is_not_treated_as_claim(text):
+    assert classify_intent(text) == "greeting"
+    assert "ASHA Shahayak" in intent_reply("greeting")
+
+
 def test_unknown_intent_is_safe():
-    assert classify_intent("नमस्ते") == "unknown"
+    assert classify_intent("मुझे मदद चाहिए") == "unknown"
     assert "दावा" not in intent_reply("unknown")
 
 

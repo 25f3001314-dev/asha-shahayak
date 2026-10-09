@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASHA Shahayak - Local Demo Bot</title>
+  <style>
+    :root{font-family:system-ui,sans-serif;color:#202124;background:#f5f7fb}
+    body{max-width:800px;margin:0 auto;padding:24px}
+    main{background:white;border-radius:14px;padding:20px;box-shadow:0 2px 12px #0001}
+    h1{margin-top:0}.hint{color:#5f6368}
+    #chat{min-height:260px;border:1px solid #dfe3eb;border-radius:10px;padding:12px;margin:16px 0;white-space:pre-wrap}
+    .msg{padding:10px 12px;border-radius:10px;margin:8px 0;max-width:90%}
+    .user{background:#e8f0fe;margin-left:auto}.bot{background:#eef7ee}
+    textarea{width:100%;box-sizing:border-box;padding:10px;border:1px solid #bbc3d0;border-radius:8px}
+    button{border:0;border-radius:8px;padding:10px 14px;margin:8px 6px 0 0;cursor:pointer}
+    #send{background:#1769e0;color:white}.voice{background:#188038;color:white}.stop{background:#d93025;color:white}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    code{background:#f1f3f4;padding:2px 5px;border-radius:4px}
+    #status{font-size:.9rem}.error{color:#b3261e}
+  </style>
+</head>
+<body>
+<main>
+  <h1>ASHA Shahayak Local Demo Bot</h1>
+  <p class="hint">WhatsApp के बिना text भेजें या microphone से voice note record करें।</p>
+  <p id="status">Checking local bot...</p>
+  <section id="chat" aria-live="polite">Bot ready. Example: <code>vaccination july count 3 amount 250</code></section>
+  <textarea id="text" rows="3" placeholder="अपना message लिखें..."></textarea>
+  <div>
+    <button id="send">Send text</button>
+    <button id="record" class="voice">Start voice note</button>
+    <button id="stop" class="stop" disabled>Stop and send</button>
+    <button id="uploadBtn" type="button">Upload audio file</button>
+    <input id="audioFile" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg" hidden>
+  </div>
+  <p class="hint">Voice transcription के लिए <code>ASHA_SARVAM_API_KEY</code> चाहिए। Text mode बिना key के चलता है।</p>
+</main>
+<script>
+const chat = document.querySelector("#chat");
+const status = document.querySelector("#status");
+const text = document.querySelector("#text");
+const send = document.querySelector("#send");
+const record = document.querySelector("#record");
+const stop = document.querySelector("#stop");
+const uploadBtn = document.querySelector("#uploadBtn");
+const audioFile = document.querySelector("#audioFile");
+let recorder;
+let chunks = [];
+
+function addMessage(kind, value) {
+  const item = document.createElement("div");
+  item.className = `msg ${kind}`;
+  item.textContent = value;
+  chat.appendChild(item);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+async function sendText() {
+  const value = text.value.trim();
+  if (!value) return;
+  addMessage("user", value);
+  text.value = "";
+  try {
+    const response = await fetch("/api/text", {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({text: value})
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Text request failed");
+    addMessage("bot", data.reply + `\nReceipt: ${data.receipt_id}`);
+  } catch (error) {
+    addMessage("bot error", error.message);
+  }
+}
+
+send.onclick = sendText;
+text.onkeydown = (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    sendText();
+  }
+};
+
+async function sendVoiceBlob(audio) {
+  addMessage("user", "[Voice note sent]");
+  status.textContent = "Transcribing voice...";
+  try {
+    const response = await fetch("/api/voice", {
+      method: "POST",
+      headers: {"content-type": audio.type || "application/octet-stream"},
+      body: audio
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Voice request failed");
+    addMessage("bot", data.ok ? `मैंने सुना: "${data.transcript}"\n${data.reply}\nReceipt: ${data.receipt_id}` : data.error);
+  } catch (error) {
+    addMessage("bot error", error.message);
+  } finally {
+    status.textContent = "Ready";
+  }
+}
+
+record.onclick = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    recorder = new MediaRecorder(stream);
+    chunks = [];
+    recorder.ondataavailable = (event) => chunks.push(event.data);
+    recorder.onstop = async () => {
+      stream.getTracks().forEach((track) => track.stop());
+      const audio = new Blob(chunks, {type: recorder.mimeType || "audio/webm"});
+      await sendVoiceBlob(audio);
+    };
+    recorder.start();
+    record.disabled = true;
+    stop.disabled = false;
+    status.textContent = "Recording...";
+  } catch (error) {
+    addMessage("bot error", `Microphone permission failed: ${error.message}`);
+  }
+};
+
+stop.onclick = () => {
+  if (recorder && recorder.state === "recording") recorder.stop();
+  record.disabled = false;
+  stop.disabled = true;
+};
+
+uploadBtn.onclick = () => audioFile.click();
+
+audioFile.onchange = async () => {
+  const file = audioFile.files[0];
+  if (!file) return;
+  await sendVoiceBlob(file);
+  audioFile.value = "";
+};
+
+fetch("/api/health").then((response) => response.json()).then((data) => {
+  status.textContent = data.voice_transcription ? "Ready - text and voice enabled" : "Ready - text enabled; voice needs Sarvam key";
+}).catch(() => {
+  status.textContent = "Bot server is not running";
+});
+</script>
+</body>
+</html>

@@ -18,7 +18,7 @@ def to_wav_16k(audio: bytes, timeout: int = 20) -> bytes:
         )
         return proc.stdout or audio
     except (subprocess.SubprocessError, OSError) as error:
-        logger.warning("ffmpeg conversion failed: %s", type(error).__name__)
+        print("FFMPEG_FAIL:", repr(error), flush=True)
         return audio
 
 

@@ -7,6 +7,13 @@ def test_hindi_and_awadhi_numbers_are_parsed():
     assert parse_number("पचास") == 50
     assert parse_number("pachhas") == 50
     assert parse_number("एक सौ") == 100
+    assert parse_number("तीन") == 3
+    assert parse_number("teen") == 3
+    assert parse_number("dhai sau") == 250
+    assert parse_number("ढाई सौ") == 250
+    assert parse_number("दो सौ पचास") == 250
+    assert parse_number("३") == 3
+    assert parse_number("२५०") == 250
 
 
 def test_extraction_fuzzy_matches_fixed_fields():
@@ -16,6 +23,26 @@ def test_extraction_fuzzy_matches_fixed_fields():
     assert claim.month == "march"
     assert claim.count == 3
     assert claim.reported_amount == 50
+    assert claim.errors == ()
+
+
+def test_devanagari_activity_month_and_numbers_are_extracted():
+    claim = extract_claim("वैक्सीनेशन जुलाई count तीन amount दो सौ पचास")
+
+    assert claim.activity == "vaccination"
+    assert claim.month == "july"
+    assert claim.count == 3
+    assert claim.reported_amount == 250
+    assert claim.errors == ()
+
+
+def test_devanagari_digits_are_extracted():
+    claim = extract_claim("टीकाकरण जुलाई count ३ amount २५०")
+
+    assert claim.activity == "vaccination"
+    assert claim.month == "july"
+    assert claim.count == 3
+    assert claim.reported_amount == 250
     assert claim.errors == ()
 
 

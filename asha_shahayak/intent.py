@@ -1,6 +1,17 @@
 """Small rule-based intent classifier for ASHA messages."""
 
 LEXICON = {
+    "greeting": (
+        "नमस्ते",
+        "नमस्कार",
+        "प्रणाम",
+        "hello",
+        "hi",
+        "hii",
+        "hey",
+        "namaste",
+        "namaskar",
+    ),
     "followup_status": (
         "उसका",
         "उसका स्टेटस",
@@ -35,6 +46,12 @@ LEXICON = {
 
 def classify_intent(text: str) -> str:
     normalized = " ".join(text.casefold().split())
+    words = set(normalized.split())
+    if any(
+        keyword == normalized or keyword in words
+        for keyword in LEXICON["greeting"]
+    ):
+        return "greeting"
     if any(keyword in normalized for keyword in LEXICON["followup_status"]):
         return "followup_status"
     if any(keyword in normalized for keyword in LEXICON["grievance_request"]):
@@ -45,6 +62,8 @@ def classify_intent(text: str) -> str:
 
 
 def intent_reply(intent: str) -> str:
+    if intent == "greeting":
+        return "नमस्ते। मैं ASHA Shahayak हूँ। भुगतान से जुड़ी जानकारी के लिए काम, महीना, गिनती और मिली हुई राशि बताएं।"
     if intent == "payment_status":
         return "रिकॉर्ड से तारीख पक्की नहीं है।"
     if intent == "followup_status":

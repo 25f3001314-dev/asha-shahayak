@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^git status --short && printf '\\\\nRoot files:\\\\n' && find \\. -maxdepth 2 -type f -not -path '\\./\\.git/\\*' \\| sort \\| head -100$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

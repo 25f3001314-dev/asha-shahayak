@@ -222,3 +222,4 @@ __marimo__/
 demo.sqlite3
 *.sqlite3
 *.egg-info/
+.vercel

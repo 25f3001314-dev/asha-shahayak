@@ -8,7 +8,14 @@ from asha_shahayak.dates import resolve_day
 
 
 ACTIVITIES = {
-    "vaccination": ["vaccination", "टीकाकरण", "टीका", "teekakaran", "teeka"],
+    "vaccination": [
+        "vaccination",
+        "टीकाकरण",
+        "वैक्सीनेशन",
+        "टीका",
+        "teekakaran",
+        "teeka",
+    ],
     "home_visit": ["home visit", "घर भ्रमण", "घर का दौरा", "ghar visit"],
     "antenatal_visit": ["antenatal visit", "गर्भ जांच", "गर्भ जाँच", "garbh jaanch"],
 }
@@ -60,6 +67,13 @@ NUMBER_WORDS = {
     "hundred": 100, "sau": 100, "सौ": 100,
 }
 
+HALF_HUNDRED_WORDS = {"dhai", "ढाई"}
+
+# Words that come right before the count / amount number.
+# Voice transcripts often write English words in Devanagari (काउंट, अमाउंट).
+COUNT_LABELS = ("count", "काउंट", "गिनती", "संख्या", "बार", "visits")
+AMOUNT_LABELS = ("amount", "अमाउंट", "आउटपुट", "राशि", "पैसा", "payment", "₹", "rs")
+
 
 def amount_words(number: int) -> str:
     if number < 100:
@@ -94,6 +108,10 @@ def parse_number(value: str) -> int | None:
     if value.isdigit() or re.fullmatch(r"[०-९]+", value):
         return int(value.translate(str.maketrans("०१२३४५६७८९", "0123456789")))
     words = re.split(r"[\s-]+", value)
+    if len(words) == 2 and words[0] in HALF_HUNDRED_WORDS and words[1] in {
+        "hundred", "sau", "सौ"
+    }:
+        return 250
     values = [NUMBER_WORDS.get(word) for word in words]
     if any(item is None for item in values):
         return None
@@ -106,14 +124,14 @@ def parse_number(value: str) -> int | None:
 def _find_number(text: str, labels: tuple[str, ...]) -> int | None:
     pattern = "|".join(re.escape(label) for label in labels)
     match = re.search(
-        rf"(?:{pattern})\s*(?:is|hai|का|की|:)?\s*([0-9०-९]+|[^\s,;]+(?:\s+[^\s,;]+)?)",
+        rf"(?:{pattern})\s*(?:is|hai|का|की|:)?\s*([0-9०-९]+|[^\s,;]+(?:\s+[^\s,;]+){{0,2}})",
         text,
         re.I,
     )
     if not match:
         return None
     words = match.group(1).split()
-    for size in (2, 1):
+    for size in range(min(3, len(words)), 0, -1):
         number = parse_number(" ".join(words[:size]))
         if number is not None:
             return number
@@ -141,8 +159,8 @@ def extract_claim(
     day_candidates = tuple(d.isoformat() for d in day["candidates"])
     if month is None and len(day["candidates"]) == 1:
         month = day["candidates"][0].strftime("%B").lower()
-    count = _find_number(lowered, ("count", "गिनती", "संख्या", "बार", "visits", "बार"))
-    amount = _find_number(lowered, ("amount", "राशि", "पैसा", "payment", "₹", "rs"))
+    count = _find_number(lowered, COUNT_LABELS)
+    amount = _find_number(lowered, AMOUNT_LABELS)
     errors = []
     if not activity:
         errors.append("activity_not_found")
