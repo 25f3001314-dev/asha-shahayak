@@ -48,6 +48,15 @@ class ComplaintStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def for_receipt(self, receipt_id: str) -> dict | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT complaint_id, receipt_id, draft, state, updated_at, reason_code "
+                "FROM complaints WHERE receipt_id = ? ORDER BY updated_at LIMIT 1",
+                (receipt_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
     def set_reason(self, complaint_id: str, reason_code: str) -> None:
         with self._connect() as db:
             changed = db.execute(

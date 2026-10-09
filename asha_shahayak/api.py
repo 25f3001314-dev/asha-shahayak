@@ -1,10 +1,11 @@
 import logging
 import json
+import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, status
 from pydantic import BaseModel, Field
 
 from .config import Settings, get_settings
@@ -45,6 +46,20 @@ def get_settings_value(settings: Annotated[Settings, Depends(get_settings)]) -> 
     return settings
 
 
+def require_api_key(
+    settings: Annotated[Settings, Depends(get_settings)],
+    x_api_key: Annotated[str | None, Header(alias="x-api-key")] = None,
+) -> None:
+    if (
+        not settings.api_key
+        or not x_api_key
+        or not secrets.compare_digest(
+            x_api_key.encode("utf-8"), settings.api_key.encode("utf-8")
+        )
+    ):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="api key required")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     get_settings.cache_clear()
@@ -68,6 +83,7 @@ app.include_router(whatsapp_router)
 async def intake(
     request: IntakeRequest,
     store: Annotated[IntakeStore, Depends(get_store)],
+    _: Annotated[None, Depends(require_api_key)],
 ) -> IntakeResponse:
     receipt_id, duplicate, received_at = store.save_or_get(
         source=request.source,
@@ -85,6 +101,7 @@ async def intake(
 async def reconcile(
     request: ReconcileRequest,
     settings: Annotated[Settings, Depends(get_settings_value)],
+    _: Annotated[None, Depends(require_api_key)],
 ) -> dict[str, Any]:
     intake_store = IntakeStore(settings.database_path, settings.receipt_prefix)
     intake_receipt, duplicate, received_at = intake_store.save_or_get(
@@ -92,7 +109,7 @@ async def reconcile(
         external_message_id=request.external_message_id,
         payload_json=json.dumps({"text": request.text}, ensure_ascii=False),
     )
-    if duplicate:
+    if duplicate and intake_store.status_for(request.external_message_id) == "processed":
         return {
             "receipt_id": intake_receipt,
             "received_at": received_at,
@@ -102,7 +119,12 @@ async def reconcile(
     try:
         result = reconcile_saved_text(request.text, intake_receipt, settings)
     except ValueError as error:
+        intake_store.mark_status(intake_receipt, "failed")
         raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception:
+        intake_store.mark_status(intake_receipt, "failed")
+        raise
+    intake_store.mark_status(intake_receipt, "processed")
     response: dict[str, Any] = {**result, "duplicate": duplicate}
     if result["status"] == "medical_emergency":
         response["received_at"] = received_at
@@ -115,6 +137,7 @@ async def complaint_decision(
     complaint_id: str,
     decision: ComplaintDecision,
     settings: Annotated[Settings, Depends(get_settings_value)],
+    _: Annotated[None, Depends(require_api_key)],
 ) -> dict[str, Any]:
     try:
         return ComplaintStore(settings.database_path).decide(complaint_id, decision.confirm)

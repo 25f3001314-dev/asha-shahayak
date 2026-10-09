@@ -246,23 +246,16 @@ def reply_for_text(
     return reply_context_for_text(text, receipt_id, settings, sender)[0]
 
 
-async def process_message(
+async def _process_message(
     message: dict[str, Any],
     payload: dict[str, Any],
     settings: Settings,
     media_client: MediaClient,
     asr: AsrEngine,
+    receipt_id: str,
 ) -> None:
     message_id = message.get("id")
     if not message_id:
-        return
-    store = IntakeStore(settings.database_path, settings.receipt_prefix)
-    receipt_id, duplicate, _ = store.save_or_get(
-        source="whatsapp",
-        external_message_id=message_id,
-        payload_json=json.dumps(payload, ensure_ascii=False, sort_keys=True),
-    )
-    if duplicate:
         return
     if message.get("type") == "text":
         text = message.get("text", {}).get("body", "")
@@ -292,6 +285,32 @@ async def process_message(
             facts = FactSet()
         await send_reply(settings, to, reply, facts, receipt_id)
         return
+
+
+async def process_message(
+    message: dict[str, Any],
+    payload: dict[str, Any],
+    settings: Settings,
+    media_client: MediaClient,
+    asr: AsrEngine,
+) -> None:
+    message_id = message.get("id")
+    if not message_id:
+        return
+    store = IntakeStore(settings.database_path, settings.receipt_prefix)
+    receipt_id, duplicate, _ = store.save_or_get(
+        source="whatsapp",
+        external_message_id=message_id,
+        payload_json=json.dumps(payload, ensure_ascii=False, sort_keys=True),
+    )
+    if duplicate and store.status_for(message_id) == "processed":
+        return
+    try:
+        await _process_message(message, payload, settings, media_client, asr, receipt_id)
+    except Exception:
+        store.mark_status(receipt_id, "failed")
+        raise
+    store.mark_status(receipt_id, "processed")
 
 
 async def process_payload(

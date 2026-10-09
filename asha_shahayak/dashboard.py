@@ -19,7 +19,9 @@ REASON_CODES = ("missing_payment", "wrong_amount", "wrong_activity", "wrong_mont
 
 def officer_token(request: Request, settings: Annotated[Settings, Depends(get_settings)]) -> str:
     supplied = request.headers.get("x-officer-token") or request.query_params.get("token")
-    if not supplied or not secrets.compare_digest(supplied, settings.officer_token):
+    if not supplied or not secrets.compare_digest(
+        supplied.encode("utf-8"), settings.officer_token.encode("utf-8")
+    ):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="officer token required")
     return supplied
 

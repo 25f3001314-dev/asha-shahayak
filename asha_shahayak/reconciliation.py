@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 from .complaints import ComplaintStore
 from .config import Settings
@@ -43,9 +42,10 @@ def reconcile_saved_text(
     gap = find_gap(expected, claim.reported_amount, context)
     ledger = Ledger(settings.database_path, settings.receipt_prefix)
     entry = ledger.append(
-        {"intake_receipt_id": receipt_id, "claim": claim.__dict__, "expected": expected}
+        {"intake_receipt_id": receipt_id, "claim": claim.__dict__, "expected": expected},
+        receipt_id=receipt_id,
     )
-    if gap.found:
+    if gap.found and not ledger.has_gap(entry["receipt_id"]):
         ledger.record_gap(entry["receipt_id"], gap.rupees, gap.trace)
     result: dict[str, Any] = {
         "status": "reconciled",
@@ -60,7 +60,16 @@ def reconcile_saved_text(
     if len(claim.day_candidates) == 1:
         result["query_date"] = claim.day_candidates[0]
     if gap.found and gap.rupees >= 0:
-        complaint_id = f"complaint-{uuid4().hex[:12]}"
+        complaint_store = ComplaintStore(settings.database_path)
+        existing_complaint = complaint_store.for_receipt(entry["receipt_id"])
+        if existing_complaint:
+            result["complaint"] = {
+                "complaint_id": existing_complaint["complaint_id"],
+                "state": existing_complaint["state"],
+                "filed": existing_complaint["state"] == "filed",
+            }
+            return result
+        complaint_id = f"complaint-{entry['receipt_id']}"
         month = claim.month or "missing (used today's date)"
         reported = (
             str(claim.reported_amount)
@@ -75,7 +84,7 @@ def reconcile_saved_text(
             f"difference: ₹{gap.rupees}; rate card source: {card.source}{unverified}. "
             "ASHA confirmation required before filing."
         )
-        result["complaint"] = ComplaintStore(settings.database_path).create(
+        result["complaint"] = complaint_store.create(
             complaint_id, entry["receipt_id"], draft
         )
     return result

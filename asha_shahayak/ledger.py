@@ -40,11 +40,23 @@ class Ledger:
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.database_path)
 
-    def append(self, payload: dict) -> dict:
+    def append(self, payload: dict, receipt_id: str | None = None) -> dict:
         created_at = datetime.now(timezone.utc).isoformat()
-        receipt_id = f"{self.prefix}-{uuid4().hex[:12].upper()}"
+        if receipt_id is None:
+            receipt_id = f"{self.prefix}-{uuid4().hex[:12].upper()}"
         body = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         with self._connect() as db:
+            existing = db.execute(
+                "SELECT created_at, entry_hash FROM ledger_entries WHERE receipt_id = ?",
+                (receipt_id,),
+            ).fetchone()
+            if existing:
+                return {
+                    "receipt_id": receipt_id,
+                    "created_at": existing[0],
+                    "entry_hash": existing[1],
+                    "existing": True,
+                }
             row = db.execute(
                 "SELECT entry_hash FROM ledger_entries ORDER BY sequence DESC LIMIT 1"
             ).fetchone()
@@ -60,7 +72,12 @@ class Ledger:
                 """,
                 (receipt_id, created_at, body, previous_hash, entry_hash),
             )
-        return {"receipt_id": receipt_id, "created_at": created_at, "entry_hash": entry_hash}
+        return {
+            "receipt_id": receipt_id,
+            "created_at": created_at,
+            "entry_hash": entry_hash,
+            "existing": False,
+        }
 
     def entries(self) -> list[tuple]:
         with self._connect() as db:
@@ -75,6 +92,13 @@ class Ledger:
                 "VALUES (?, ?, ?, ?)",
                 (receipt_id, "rules_engine", rupees, json.dumps(trace)),
             )
+
+    def has_gap(self, receipt_id: str) -> bool:
+        with self._connect() as db:
+            return db.execute(
+                "SELECT 1 FROM gap_traces WHERE receipt_id = ? LIMIT 1",
+                (receipt_id,),
+            ).fetchone() is not None
 
     def gaps(self) -> list[tuple]:
         with self._connect() as db:

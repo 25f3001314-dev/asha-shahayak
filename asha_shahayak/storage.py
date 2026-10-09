@@ -30,10 +30,16 @@ class IntakeStore:
                     source TEXT NOT NULL,
                     external_message_id TEXT NOT NULL UNIQUE,
                     received_at TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
+                    payload_json TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'received'
                 )
                 """
             )
+            columns = connection.execute("PRAGMA table_info(intake_requests)").fetchall()
+            if not any(column[1] == "status" for column in columns):
+                connection.execute(
+                    "ALTER TABLE intake_requests ADD COLUMN status TEXT NOT NULL DEFAULT 'received'"
+                )
 
     def save_or_get(
         self, *, source: str, external_message_id: str, payload_json: str
@@ -59,9 +65,26 @@ class IntakeStore:
             connection.execute(
                 """
                 INSERT INTO intake_requests
-                    (receipt_id, source, external_message_id, received_at, payload_json)
-                VALUES (?, ?, ?, ?, ?)
+                    (receipt_id, source, external_message_id, received_at, payload_json, status)
+                VALUES (?, ?, ?, ?, ?, 'received')
                 """,
                 (receipt_id, source, external_message_id, received_at.isoformat(), payload_json),
             )
             return receipt_id, False, received_at
+
+    def status_for(self, external_message_id: str) -> str:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT status FROM intake_requests WHERE external_message_id = ?",
+                (external_message_id,),
+            ).fetchone()
+        return row["status"] if row else "received"
+
+    def mark_status(self, receipt_id: str, status: str) -> None:
+        if status not in {"received", "processed", "failed"}:
+            raise ValueError("invalid intake status")
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                "UPDATE intake_requests SET status = ? WHERE receipt_id = ?",
+                (status, receipt_id),
+            )
