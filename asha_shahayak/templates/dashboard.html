@@ -16,10 +16,9 @@
     .subtitle,.hint,.empty { color:var(--muted); }
     .subtitle { margin:8px 0 0; }
     .message { background:#e9f8ef; border:1px solid #bce8ca; border-radius:8px; color:#176b3a; margin:0 0 20px; padding:12px 16px; }
-    .upload-button { background:var(--primary); transition:opacity .2s; }
-    .upload-button.has-data { background:#98a2b3; cursor:not-allowed; opacity:.65; }
-    .upload-button.has-data:hover { background:#98a2b3; }
-    .upload-another { background:#475467; }
+    .message.error { background:#fdecec; border-color:#f4b4b4; color:#9b1c1c; }
+    .warning { background:#fff6e0; border:1px solid #f3d38b; border-radius:8px; color:#7a4b00; margin:0 0 20px; padding:12px 16px; }
+    .refreshed { color:var(--muted); font-size:.85rem; margin:6px 0 0; }
     .grid { display:grid; gap:20px; grid-template-columns:repeat(2,minmax(0,1fr)); }
     .card { background:var(--surface); border:1px solid var(--line); border-radius:12px; box-shadow:0 2px 8px rgb(23 32 51 / 5%); padding:22px; margin-bottom:20px; }
     .centered-state { text-align:center; }
@@ -55,8 +54,10 @@
   <header>
     <h1>Block Officer Dashboard</h1>
     <p class="subtitle">ASHA records, officer status updates, complaints and ledger activity</p>
+    <p class="refreshed">Updates automatically every 20 seconds. Last refreshed: <span id="refreshed-at">just now</span></p>
   </header>
-  {% if message %}<p class="message" role="status">{{ message }}</p>{% endif %}
+  {% for warning in warnings %}<p class="warning" role="alert">{{ warning }}</p>{% endfor %}
+  {% if message %}<p class="message{% if message_is_error %} error{% endif %}" role="status">{{ message }}</p>{% endif %}
 
   <section class="card">
     <h2 class="centered-state">ASHA-confirmed complaints</h2>
@@ -107,16 +108,9 @@
       <label>ASHA working status CSV
         <input type="file" name="status_file" accept=".csv" required aria-label="ASHA working status CSV file">
       </label>
-      <button class="upload-button{% if has_uploaded_data %} has-data{% endif %}" type="submit" {% if has_uploaded_data %}disabled{% endif %}>
-        Upload both files
-      </button>
-      {% if has_uploaded_data %}
-      <button class="upload-another" type="button" onclick="this.form.reset(); this.form.querySelector('button[type=submit]').disabled = false; this.form.querySelector('button[type=submit]').classList.remove('has-data'); this.hidden = true;">
-        Upload another
-      </button>
-      {% endif %}
+      <button class="upload-button" type="submit">Upload both files</button>
     </form>
-    <p class="hint">Registry columns: <strong>asha_id, phone_number</strong>. Phone numbers are hashed and not stored.</p>
+    <p class="hint">Registry columns: <strong>asha_id, phone_number</strong>. Phone numbers are hashed and not stored. Uploading again replaces the current data.</p>
     <form class="upload-form" method="post" action="/dashboard/registry/reset?token={{ token }}">
       <input type="text" name="asha_id" placeholder="ASHA-1" required aria-label="ASHA ID">
       <button type="submit">Reset ASHA binding</button>
@@ -153,5 +147,33 @@ ASHA-217,march,home_visit,450,300,moic_pending,2026-03-30</pre>
     <p class="hint centered-state">The chatbot reads the current merged registry and working status data shown here.</p>
   </section>
 </main>
+<script>
+(function () {
+  var token = {{ token|tojson }};
+  var stamp = document.getElementById("refreshed-at");
+  function idle() {
+    var active = document.activeElement;
+    if (active && /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName)) return false;
+    var files = document.querySelectorAll("input[type=file]");
+    for (var i = 0; i < files.length; i++) { if (files[i].files && files[i].files.length) return false; }
+    return true;
+  }
+  async function refresh() {
+    if (document.hidden || !idle()) return;
+    try {
+      var response = await fetch("/dashboard", {cache: "no-store", headers: {"x-officer-token": token}});
+      if (!response.ok) return;
+      var fresh = new DOMParser().parseFromString(await response.text(), "text/html").querySelector("main.shell");
+      var current = document.querySelector("main.shell");
+      if (!fresh || !current) return;
+      current.innerHTML = fresh.innerHTML;
+      var label = document.getElementById("refreshed-at");
+      if (label) label.textContent = new Date().toLocaleTimeString();
+    } catch (error) { /* keep the current page if the server is briefly unavailable */ }
+  }
+  setInterval(refresh, 20000);
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) refresh(); });
+})();
+</script>
 </body>
 </html>
