@@ -133,6 +133,7 @@
         <button class="upload-button" type="submit">Upload both files</button>
       </form>
       <p class="hint">Registry columns: <strong>asha_id, phone_number</strong>. Phone numbers are hashed and not stored. Uploading again replaces the current data.</p>
+            <p class="hint">Use this when an ASHA changes her phone. Enter her ID and press Reset, so she can link a new phone.</p>
       <form class="upload-form" method="post" action="/dashboard/registry/reset?token={{ token }}">
         <input type="text" name="asha_id" placeholder="ASHA-1" required aria-label="ASHA ID">
         <button type="submit">Reset ASHA binding</button>
