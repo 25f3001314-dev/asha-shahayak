@@ -208,7 +208,7 @@ ASHA-217,march,home_visit,450,300,moic_pending,2026-03-30</pre>
     <h2 class="centered-state">Merged ASHA data used by chatbot</h2>
     {% if merged_rows %}
     <div class="table-wrap"><table><thead><tr><th>ASHA ID</th><th>Registered</th><th>Month</th><th>Head</th><th>Claimed</th><th>Approved</th><th>Stage</th><th>Stage date</th></tr></thead><tbody>
-      {% for row in merged_rows %}<tr><td>{{ row.asha_id }}</td><td>{% if row.registered %}Yes{% else %}No{% endif %}</td><td>{{ row.month }}</td><td>{{ row.head }}</td><td>{{ row.claimed_amount }}</td><td>{{ row.approved_amount }}</td><td>{{ row.stage }}{% if stage_text.get(row.stage) %}<br><span class="stage-note">{{ stage_text[row.stage] }}</span>{% endif %}</td><td>{{ row.stage_date }}</td></tr>{% endfor %}
+      {% for row in merged_rows %}<tr><td>{{ row.asha_id }}</td><td>{% if row.registered %}Yes{% else %}No{% endif %}</td><td>{{ row.month }}</td><td>{{ row.head }}</td><td>{{ row.claimed_amount }}</td><td>{{ row.approved_amount }}</td><td>{{ row.stage }}{% if stage_text.get(row.stage) %}<br><span class="stage-note">{{ stage_text[row.stage] }}</span>{% endif %}</td><td>{{ row.stage_date or "-" }}</td></tr>{% endfor %}
     </tbody></table></div>
     {% else %}<p class="empty centered-state">No entries yet. No uploaded ASHA data yet.</p>{% endif %}
     <p class="hint centered-state">The chatbot reads the current merged registry and working status data shown here.</p>

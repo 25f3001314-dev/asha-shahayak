@@ -98,6 +98,7 @@ HEAD_HI = {
     "home_visit": "घर-घर विज़िट",
     "vaccination": "टीकाकरण",
     "family_planning": "परिवार नियोजन",
+    "asha_incentive": "आशा प्रोत्साहन राशि",
 }
 MONTH_HI = {
     "January": "जनवरी",
