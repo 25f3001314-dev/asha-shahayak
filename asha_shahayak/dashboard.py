@@ -16,6 +16,7 @@ from .status import StatusStore
 
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 router = APIRouter()
+NO_STORE = {"Cache-Control": "no-store, max-age=0"}
 REASON_CODES = ("missing_payment", "wrong_amount", "wrong_activity", "wrong_month", "other")
 
 
@@ -26,6 +27,23 @@ def officer_token(request: Request, settings: Annotated[Settings, Depends(get_se
     ):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="officer token required")
     return supplied
+
+
+def render(request: Request, data: dict) -> HTMLResponse:
+    """Always render fresh: officers must never see a cached copy of the data."""
+    message = data.get("message") or ""
+    data["message_is_error"] = "error" in message.lower()
+    return templates.TemplateResponse(request, "dashboard.html", data, headers=NO_STORE)
+
+
+def system_warnings(settings: Settings) -> list[str]:
+    warnings = []
+    if not settings.session_salt:
+        warnings.append(
+            "ASHA_SESSION_SALT is not set on the server, so the ASHA registry CSV "
+            "cannot be uploaded and complaint confirmation is disabled."
+        )
+    return warnings
 
 
 def page_data(settings: Settings, token: str) -> dict:
@@ -61,6 +79,8 @@ def page_data(settings: Settings, token: str) -> dict:
         "merged_rows": merged_rows,
         "has_uploaded_data": bool(statuses or registry_ids),
         "reason_codes": REASON_CODES,
+        "warnings": system_warnings(settings),
+        "database_path": settings.database_path,
         "message": None,
     }
 
@@ -70,9 +90,7 @@ async def dashboard_page(
     token: Annotated[str, Depends(officer_token)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> HTMLResponse:
-    return templates.TemplateResponse(
-        request, "dashboard.html", page_data(settings, token)
-    )
+    return render(request, page_data(settings, token))
 
 
 async def save_reason(
@@ -103,7 +121,7 @@ async def upload_status(
     except ValueError as error:
         data = page_data(settings, token)
         data["message"] = f"CSV error: {error}"
-    return templates.TemplateResponse(request, "dashboard.html", data)
+    return render(request, data)
 
 
 async def upload_registry(
@@ -121,7 +139,7 @@ async def upload_registry(
     except ValueError as error:
         data = page_data(settings, token)
         data["message"] = f"Registration CSV error: {error}"
-    return templates.TemplateResponse(request, "dashboard.html", data)
+    return render(request, data)
 
 
 async def upload_dashboard_data(
@@ -152,7 +170,7 @@ async def upload_dashboard_data(
         message = f"CSV error: {error}"
     data = page_data(settings, token)
     data["message"] = message
-    return templates.TemplateResponse(request, "dashboard.html", data)
+    return render(request, data)
 
 
 async def reset_registry(
