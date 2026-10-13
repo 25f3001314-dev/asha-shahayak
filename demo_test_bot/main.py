@@ -5,6 +5,7 @@ import logging
 import re
 import shutil
 import time
+from datetime import date
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -91,6 +92,29 @@ STAGE_LABELS = {
     "paid": "भुगतान पूरा हो चुका है",
 }
 
+# Plain spoken-Hindi names used only to make the payment reply sound human.
+HEAD_HI = {
+    "institutional_delivery": "संस्थागत प्रसव",
+    "home_visit": "घर-घर विज़िट",
+    "vaccination": "टीकाकरण",
+    "family_planning": "परिवार नियोजन",
+}
+MONTH_HI = {
+    "January": "जनवरी",
+    "February": "फ़रवरी",
+    "March": "मार्च",
+    "April": "अप्रैल",
+    "May": "मई",
+    "June": "जून",
+    "July": "जुलाई",
+    "August": "अगस्त",
+    "September": "सितंबर",
+    "October": "अक्टूबर",
+    "November": "नवंबर",
+    "December": "दिसंबर",
+}
+MONTH_NAMES_HI = list(MONTH_HI.values())
+
 # Voice transcripts say "ASHA 106" or "आशा १०६" instead of "ASHA-106".
 SPOKEN_ID_PATTERN = re.compile(
     r"(?:asha|आशा)[\s\-_]*([A-Za-z]{0,3}[0-9०-९][A-Za-z0-9०-९_-]*)",
@@ -156,22 +180,68 @@ def is_payment_query(text: str) -> bool:
     return any(marker in normalized for marker in PAYMENT_QUERY_MARKERS)
 
 
+def _spoken_date(iso: Any) -> str:
+    """'2026-03-28' -> '28 मार्च'; empty string if the date cannot be read."""
+    try:
+        parsed = date.fromisoformat(str(iso))
+        return f"{parsed.day} {MONTH_NAMES_HI[parsed.month - 1]}"
+    except (TypeError, ValueError):
+        return ""
+
+
+def _whole_rupees(value: Any) -> int:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return 0
+
+
 def payment_status_reply(asha_id: str) -> tuple[str, FactSet]:
     rows = StatusStore(settings.database_path).for_asha(asha_id)
     if not rows:
         return f"{asha_id} के लिए भुगतान की स्थिति अपलोड नहीं हुई है।", FactSet()
-    lines = [f"{asha_id} के भुगतान की स्थिति:"]
+    lines = [f"नमस्ते दीदी, {asha_id} के भुगतान की स्थिति ये है:"]
+    paid_total = 0
+    pending_total = 0
     for row in rows:
-        stage = STAGE_LABELS.get(row["stage"], row["stage"])
-        amount_text = (
-            f" स्वीकृत राशि ₹{row['approved_amount']}।"
-            if row["approved_amount"] is not None
-            else ""
-        )
-        date_text = f" तारीख: {row['stage_date']}।" if row["stage_date"] else ""
+        stage = str(row["stage"] or "")
+        head = HEAD_HI.get(row["head"], str(row["head"]).replace("_", " "))
+        month_raw = str(row["month"]).title()
+        month = MONTH_HI.get(month_raw, month_raw)
+        amount = _whole_rupees(row["approved_amount"])
+        when = _spoken_date(row["stage_date"])
+
+        if stage == "paid":
+            paid_total += amount
+            on_date = f" {when} को" if when else ""
+            lines.append(
+                f"{month} में {head} के {amount} रुपये{on_date} आपको मिल चुके हैं।"
+            )
+        elif stage == "bam_pending":
+            pending_total += amount
+            lines.append(
+                f"{month} में {head} के {amount} रुपये पास हो गए हैं, "
+                "बस ब्लॉक से भुगतान आना बाकी है।"
+            )
+        elif stage == "moic_pending":
+            pending_total += amount
+            lines.append(
+                f"{month} में {head} की स्वीकृति अभी MOIC के पास बाकी है।"
+            )
+        elif stage == "anm_pending":
+            pending_total += amount
+            lines.append(
+                f"{month} में {head} का वाउचर अभी ANM के पास अटका है, "
+                "इसलिए अभी भुगतान आगे नहीं बढ़ा है।"
+            )
+        else:
+            pending_total += amount
+            label = STAGE_LABELS.get(stage, stage)
+            lines.append(f"{month} में {head} का काम अभी इस चरण में है: {label}।")
+    if paid_total or pending_total:
         lines.append(
-            f"{row['month'].title()} महीने की {row['head']} मद: {stage}।"
-            f"{amount_text}{date_text}"
+            f"कुल मिलाकर {paid_total} रुपये मिल चुके हैं "
+            f"और {pending_total} रुपये आने बाकी हैं।"
         )
     return "\n".join(lines), FactSet()
 
