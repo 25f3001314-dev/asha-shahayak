@@ -257,8 +257,8 @@ def test_local_demo_answers_payment_followup_for_selected_asha(tmp_path, monkeyp
     result = demo_main.bot_response("eske payment ke bare me btao", "demo-2")
 
     assert "ASHA-106 के भुगतान की स्थिति" in result["reply"]
-    assert "भुगतान पूरा हो चुका है" in result["reply"]
-    assert "स्वीकृत राशि ₹300" in result["reply"]
+    assert "आपको मिल चुके हैं" in result["reply"]
+    assert "300 रुपये" in result["reply"]
 
 
 def test_local_demo_uses_hindi_fallback_for_incomplete_text(tmp_path, monkeypatch):
