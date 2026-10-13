@@ -141,23 +141,66 @@
   </section>
 
   <section class="card">
+    <style>
+      .rule pre { background:#f1f5f9; color:#172033; border:1px solid #dfe5ee; }
+      .rule-details > summary { cursor:pointer; font-weight:600; color:#1769aa; padding:4px 0; }
+      .sample-link { display:inline-block; margin:10px 0 4px; font-weight:600; color:#1769aa; }
+      .rule table { min-width:0; margin-top:8px; }
+      .rule td:first-child { white-space:nowrap; }
+      .rule ul { margin:6px 0 0; padding-left:20px; }
+    </style>
     <h2>ASHA working status CSV rule</h2>
     <p class="hint">The second file contains the current working and payment status for ASHA workers.</p>
+    <details class="rule-details">
+      <summary>Show CSV rules and a sample file</summary>
+      <a class="sample-link" download="sample_status.csv" href="data:text/csv;charset=utf-8,asha_id,month,head,claimed_amount,approved_amount,stage,stage_date%0AASHA-104,march,vaccination,300,300,paid,2026-03-28%0AASHA-217,march,home_visit,450,300,moic_pending,2026-03-30%0A">Download sample CSV</a>
       <div class="rule">
         <h3>CSV rule for payment status</h3>
         <p>Each row represents one ASHA worker, one month and one payment head.</p>
-        <p>Use this exact header:
+        <p>In simple words: <strong>one line = one payment of one ASHA for one month.</strong>
+          If an ASHA has 3 payments, she gets 3 lines.</p>
+        <p>Use this exact header as the first line of the file. Do not change it or add columns:
           <code>asha_id,month,head,claimed_amount,approved_amount,stage,stage_date</code>
         </p>
-        <p><code>month</code> must be an English month name, amounts must be whole numbers,
-          and <code>stage</code> must be <code>anm_pending</code>, <code>moic_pending</code>,
-          <code>bam_pending</code> or <code>paid</code>. These mean ANM voucher pending,
-          MOIC approval pending, BAM payment pending and payment complete. Use
-          <code>YYYY-MM-DD</code> for the date.</p>
+
+        <h3 style="margin-top:16px">What to write in each column</h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Column</th><th>What to write</th><th>Example</th></tr></thead>
+          <tbody>
+            <tr><td><code>asha_id</code></td><td>The ASHA's ID</td><td>ASHA-106</td></tr>
+            <tr><td><code>month</code></td><td>Month name in English</td><td>march</td></tr>
+            <tr><td><code>head</code></td><td>Which work the payment is for. The chatbot knows: vaccination, home_visit, institutional_delivery, family_planning</td><td>vaccination</td></tr>
+            <tr><td><code>claimed_amount</code></td><td>Amount the ASHA claimed, in rupees. Whole number only (no &#8377; sign, no comma)</td><td>300</td></tr>
+            <tr><td><code>approved_amount</code></td><td>Amount approved, in rupees. Whole number only</td><td>300</td></tr>
+            <tr><td><code>stage</code></td><td>Where the payment is right now. Choose one from the list below</td><td>paid</td></tr>
+            <tr><td><code>stage_date</code></td><td>Date of that stage, written as <code>YYYY-MM-DD</code></td><td>2026-03-28</td></tr>
+          </tbody>
+        </table></div>
+
+        <h3 style="margin-top:16px">Which stage to choose</h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Write this</th><th>Meaning</th><th>What the ASHA hears from the chatbot</th></tr></thead>
+          <tbody>
+            <tr><td><code>anm_pending</code></td><td>ANM voucher pending</td><td>Her voucher is still with the ANM</td></tr>
+            <tr><td><code>moic_pending</code></td><td>MOIC approval pending</td><td>Approval is still pending with the MOIC</td></tr>
+            <tr><td><code>bam_pending</code></td><td>BAM payment pending (approved, money not yet released)</td><td>Amount is approved, payment from the block is awaited</td></tr>
+            <tr><td><code>paid</code></td><td>Payment complete</td><td>The money has been received</td></tr>
+          </tbody>
+        </table></div>
+
+        <h3 style="margin-top:16px">Before you upload</h3>
+        <ul>
+          <li>Save the file as <strong>CSV</strong> (in Excel: Save As, then CSV UTF-8).</li>
+          <li>Write <code>month</code> and <code>stage</code> exactly as shown, in small letters.</li>
+          <li>Every ASHA ID in this file should also be in the registry file. IDs missing from the registry show "No" in the table below, and the chatbot will not find them.</li>
+        </ul>
+
+        <h3 style="margin-top:16px">Example</h3>
         <pre>asha_id,month,head,claimed_amount,approved_amount,stage,stage_date
 ASHA-104,march,vaccination,300,300,paid,2026-03-28
 ASHA-217,march,home_visit,450,300,moic_pending,2026-03-30</pre>
       </div>
+    </details>
   </section>
 
   <section class="card">
@@ -219,7 +262,7 @@ ASHA-217,march,home_visit,450,300,moic_pending,2026-03-30</pre>
   }
 
   async function refresh() {
-    if (document.hidden) return;
+    if (document.hidden || document.querySelector("details[open]")) return;
     var active = document.activeElement;
     if (active && /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName)) return;
     var files = document.querySelectorAll("input[type=file]");
