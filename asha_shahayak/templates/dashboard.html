@@ -17,20 +17,31 @@
     .subtitle { margin:8px 0 0; }
     .message { background:#e9f8ef; border:1px solid #bce8ca; border-radius:8px; color:#176b3a; margin:0 0 20px; padding:12px 16px; }
     .message.error { background:#fdecec; border-color:#f4b4b4; color:#9b1c1c; }
+    .toast { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:50; min-width:260px; max-width:90vw; margin:0; padding:20px 28px; text-align:center; font-size:1.1rem; font-weight:600; box-shadow:0 10px 36px rgb(23 32 51 / 22%); transition:opacity .45s; cursor:pointer; }
+    .toast.hide { opacity:0; }
     .warning { background:#fff6e0; border:1px solid #f3d38b; border-radius:8px; color:#7a4b00; margin:0 0 20px; padding:12px 16px; }
     .refreshed { color:var(--muted); font-size:.85rem; margin:6px 0 0; }
+    .steps { background:#eef5fb; border:1px solid #cfe0f0; border-radius:10px; margin:0 0 20px; padding:12px 18px; }
+    .steps p { margin:0 0 4px; font-weight:600; }
+    .steps ol { margin:0; padding-left:20px; color:#344054; }
     .grid { display:grid; gap:20px; grid-template-columns:repeat(2,minmax(0,1fr)); }
     .card { background:var(--surface); border:1px solid var(--line); border-radius:12px; box-shadow:0 2px 8px rgb(23 32 51 / 5%); padding:22px; margin-bottom:20px; }
     .centered-state { text-align:center; }
     .upload-form,.reason-form { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
     .reason-form { margin-top:8px; gap:8px; }
+    #upload-area { transition:opacity .45s; }
+    #upload-area.wait { visibility:hidden; opacity:0; }
     input[type=file],input[type=text],select { border:1px solid #c9d2df; border-radius:7px; background:#fff; min-height:40px; padding:8px 10px; }
     input[type=file] { flex:1 1 260px; }
     input[type=text] { width:180px; }
-    button { border:0; border-radius:7px; background:var(--primary); color:#fff; cursor:pointer; font:inherit; font-weight:600; min-height:40px; padding:8px 16px; }
+    button { border:0; border-radius:7px; background:var(--primary); color:#fff; cursor:pointer; font:inherit; font-weight:600; min-height:40px; padding:8px 16px; transition:opacity .3s; }
     button:hover { background:var(--primary-dark); }
+    button:disabled { opacity:.4; cursor:not-allowed; }
+    button:disabled:hover { background:var(--primary); }
     .reason-form button { min-height:34px; padding:5px 12px; }
     .hint { margin:10px 0 18px; }
+    .loaded { background:#f8fafc; border:1px solid var(--line); border-radius:8px; margin:0 0 14px; padding:10px 14px; }
+    .stage-note { color:var(--muted); font-size:.8rem; }
     .empty { background:#f8fafc; border:1px dashed var(--line); border-radius:8px; padding:14px; }
     .rule { background:#f8fafc; border:1px solid var(--line); border-radius:8px; margin-top:18px; padding:14px 16px; }
     .rule h3 { font-size:1rem; margin:0 0 8px; }
@@ -50,14 +61,23 @@
   </style>
 </head>
 <body>
+{% set stage_text = {"anm_pending":"ANM voucher pending","moic_pending":"MOIC approval pending","bam_pending":"BAM payment pending","paid":"Payment complete"} %}
 <main class="shell">
   <header>
     <h1>Block Officer Dashboard</h1>
     <p class="subtitle">ASHA records, officer status updates, complaints and ledger activity</p>
     <p class="refreshed">Updates automatically every 20 seconds. Last refreshed: <span id="refreshed-at">just now</span></p>
   </header>
+  <div class="steps">
+    <p>How this works</p>
+    <ol>
+      <li>Upload the ASHA registry file and the payment status file below.</li>
+      <li>Check the "Merged ASHA data" table at the bottom of this page.</li>
+      <li>ASHA workers can then ask the chatbot about their own payment status.</li>
+    </ol>
+  </div>
   {% for warning in warnings %}<p class="warning" role="alert">{{ warning }}</p>{% endfor %}
-  {% if message %}<p class="message{% if message_is_error %} error{% endif %}" role="status">{{ message }}</p>{% endif %}
+  {% if message %}<p id="toast" class="message toast{% if message_is_error %} error{% endif %}" role="status">{{ message }}</p>{% endif %}
 
   <section class="card">
     <h2 class="centered-state">ASHA-confirmed complaints</h2>
@@ -100,21 +120,24 @@
 
   <section class="card">
     <h2>Upload ASHA data</h2>
-    <p class="hint">Select both CSV files. A successful upload replaces the previous registry and working status data.</p>
-    <form class="upload-form" method="post" enctype="multipart/form-data" action="/dashboard/data?token={{ token }}">
-      <label>ASHA registry CSV
-        <input type="file" name="registry_file" accept=".csv" required aria-label="ASHA registry CSV file">
-      </label>
-      <label>ASHA working status CSV
-        <input type="file" name="status_file" accept=".csv" required aria-label="ASHA working status CSV file">
-      </label>
-      <button class="upload-button" type="submit">Upload both files</button>
-    </form>
-    <p class="hint">Registry columns: <strong>asha_id, phone_number</strong>. Phone numbers are hashed and not stored. Uploading again replaces the current data.</p>
-    <form class="upload-form" method="post" action="/dashboard/registry/reset?token={{ token }}">
-      <input type="text" name="asha_id" placeholder="ASHA-1" required aria-label="ASHA ID">
-      <button type="submit">Reset ASHA binding</button>
-    </form>
+    <p class="loaded"><strong>Currently loaded:</strong> {{ registry_ids|length }} ASHA registrations and {{ statuses|length }} payment status rows</p>
+    <div id="upload-area">
+      <p class="hint">Select both CSV files. A successful upload replaces the previous registry and working status data.</p>
+      <form id="upload-form" class="upload-form" method="post" enctype="multipart/form-data" action="/dashboard/data?token={{ token }}">
+        <label>ASHA registry CSV
+          <input type="file" name="registry_file" accept=".csv" required aria-label="ASHA registry CSV file">
+        </label>
+        <label>ASHA working status CSV
+          <input type="file" name="status_file" accept=".csv" required aria-label="ASHA working status CSV file">
+        </label>
+        <button class="upload-button" type="submit">Upload both files</button>
+      </form>
+      <p class="hint">Registry columns: <strong>asha_id, phone_number</strong>. Phone numbers are hashed and not stored. Uploading again replaces the current data.</p>
+      <form class="upload-form" method="post" action="/dashboard/registry/reset?token={{ token }}">
+        <input type="text" name="asha_id" placeholder="ASHA-1" required aria-label="ASHA ID">
+        <button type="submit">Reset ASHA binding</button>
+      </form>
+    </div>
   </section>
 
   <section class="card">
@@ -141,7 +164,7 @@ ASHA-217,march,home_visit,450,300,moic_pending,2026-03-30</pre>
     <h2 class="centered-state">Merged ASHA data used by chatbot</h2>
     {% if merged_rows %}
     <div class="table-wrap"><table><thead><tr><th>ASHA ID</th><th>Registered</th><th>Month</th><th>Head</th><th>Claimed</th><th>Approved</th><th>Stage</th><th>Stage date</th></tr></thead><tbody>
-      {% for row in merged_rows %}<tr><td>{{ row.asha_id }}</td><td>{% if row.registered %}Yes{% else %}No{% endif %}</td><td>{{ row.month }}</td><td>{{ row.head }}</td><td>{{ row.claimed_amount }}</td><td>{{ row.approved_amount }}</td><td>{{ row.stage }}</td><td>{{ row.stage_date }}</td></tr>{% endfor %}
+      {% for row in merged_rows %}<tr><td>{{ row.asha_id }}</td><td>{% if row.registered %}Yes{% else %}No{% endif %}</td><td>{{ row.month }}</td><td>{{ row.head }}</td><td>{{ row.claimed_amount }}</td><td>{{ row.approved_amount }}</td><td>{{ row.stage }}{% if stage_text.get(row.stage) %}<br><span class="stage-note">{{ stage_text[row.stage] }}</span>{% endif %}</td><td>{{ row.stage_date }}</td></tr>{% endfor %}
     </tbody></table></div>
     {% else %}<p class="empty centered-state">No entries yet. No uploaded ASHA data yet.</p>{% endif %}
     <p class="hint centered-state">The chatbot reads the current merged registry and working status data shown here.</p>
@@ -150,16 +173,57 @@ ASHA-217,march,home_visit,450,300,moic_pending,2026-03-30</pre>
 <script>
 (function () {
   var token = {{ token|tojson }};
-  var stamp = document.getElementById("refreshed-at");
-  function idle() {
-    var active = document.activeElement;
-    if (active && /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName)) return false;
-    var files = document.querySelectorAll("input[type=file]");
-    for (var i = 0; i < files.length; i++) { if (files[i].files && files[i].files.length) return false; }
-    return true;
+
+  // The upload button stays faded until BOTH files are chosen.
+  function syncUpload() {
+    var form = document.getElementById("upload-form");
+    if (!form) return;
+    var ready = true;
+    var inputs = form.querySelectorAll("input[type=file]");
+    for (var i = 0; i < inputs.length; i++) {
+      if (!(inputs[i].files && inputs[i].files.length)) ready = false;
+    }
+    var button = form.querySelector(".upload-button");
+    if (button) button.disabled = !ready;
   }
+  document.addEventListener("change", syncUpload);
+  document.addEventListener("submit", function (event) {
+    if (event.target && event.target.id === "upload-form") {
+      var button = event.target.querySelector(".upload-button");
+      if (button) { button.textContent = "Uploading, please wait..."; button.disabled = true; }
+    }
+  });
+  syncUpload();
+
+  // After an upload the URL is /dashboard/data; switch to /dashboard so Reload never re-posts the files.
+  if (window.history && history.replaceState && location.pathname !== "/dashboard") {
+    history.replaceState(null, "", "/dashboard?token=" + encodeURIComponent(token));
+  }
+
+  // Success message: centred, visible for 2 seconds, then the upload options come back.
+  // Error messages stay on screen until clicked.
+  var toast = document.getElementById("toast");
+  var area = document.getElementById("upload-area");
+  if (toast) {
+    if (toast.classList.contains("error")) {
+      toast.insertAdjacentHTML("beforeend", "<br><small>Click to close</small>");
+      toast.addEventListener("click", function () { toast.remove(); });
+    } else {
+      if (area) area.classList.add("wait");
+      setTimeout(function () {
+        toast.classList.add("hide");
+        if (area) area.classList.remove("wait");
+      }, 2000);
+      setTimeout(function () { toast.remove(); }, 2500);
+    }
+  }
+
   async function refresh() {
-    if (document.hidden || !idle()) return;
+    if (document.hidden) return;
+    var active = document.activeElement;
+    if (active && /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName)) return;
+    var files = document.querySelectorAll("input[type=file]");
+    for (var i = 0; i < files.length; i++) { if (files[i].files && files[i].files.length) return; }
     try {
       var response = await fetch("/dashboard", {cache: "no-store", headers: {"x-officer-token": token}});
       if (!response.ok) return;
@@ -169,6 +233,7 @@ ASHA-217,march,home_visit,450,300,moic_pending,2026-03-30</pre>
       current.innerHTML = fresh.innerHTML;
       var label = document.getElementById("refreshed-at");
       if (label) label.textContent = new Date().toLocaleTimeString();
+      syncUpload();
     } catch (error) { /* keep the current page if the server is briefly unavailable */ }
   }
   setInterval(refresh, 20000);
